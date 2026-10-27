@@ -140,6 +140,14 @@ prompt_input "Senha técnica interna [Pressione ENTER para usar padrão]: " INPU
 ADMIN_PASS="${INPUT_PASS:-$DEFAULT_ADMIN_PASS}"
 
 echo ""
+echo -e "${CYAN}--- Tipo de Roteamento Externo e SSL ---${NC}"
+echo "1) Cloudflare Tunnel / Edge (SSL gerenciado 100% na Cloudflare - NPM com SSL em 'None') [Padrão]"
+echo "2) Nginx Proxy Manager com Let's Encrypt / Certificado SSL Próprio no NPM"
+echo "3) Apenas Acesso Direto / Rede Local (sem proxy reverso)"
+prompt_input "Escolha o cenário de SSL [1-3, Padrão 1]: " SSL_MODE false
+SSL_MODE="${SSL_MODE:-1}"
+
+echo ""
 echo -e "${CYAN}--- Origem dos Arquivos da Aplicação ---${NC}"
 echo "1) O código já está no diretório atual ($(pwd))"
 echo "2) Clonar do repositório GitHub público (Padrão: ${DEFAULT_REPO_URL})"
@@ -480,38 +488,80 @@ echo -e "  • Raiz da Aplicação:${CYAN} ${INSTALL_DIR}${NC}"
 echo -e "  • Pasta Monitorada: ${CYAN} /var/lib/docker/volumes/atc_vision_storage/_data/watch${NC}"
 echo -e "  • Arquivo de Conf:  ${CYAN} ${INSTALL_DIR}/.env${NC}"
 echo ""
-echo -e "${CYAN}==============================================================================${NC}"
-echo -e "${BOLD}GUIA DE CONFIGURAÇÃO NO NGINX PROXY MANAGER (NPM):${NC}"
-echo -e "${CYAN}==============================================================================${NC}"
-echo -e "No seu painel do Nginx Proxy Manager, adicione um novo ${BOLD}Proxy Host${NC}:"
-echo ""
-echo -e "  ${BOLD}Aba 'Details':${NC}"
-echo -e "    - Domain Names:          ${CYAN}vision.fk.adm.br${NC}"
-echo -e "    - Scheme:                ${CYAN}http${NC}"
-echo -e "    - Forward Hostname / IP: ${CYAN}${DETECTED_IP}${NC}"
-echo -e "    - Forward Port:          ${CYAN}${HOST_PORT}${NC}"
-echo -e "    - Cache Assets:          ${YELLOW}DESMARCADO${NC} (O Nginx interno gerencia caches por hash)"
-echo -e "    - Block Common Exploits: ${GREEN}MARCADO [X]${NC}"
-echo -e "    - Websockets Support:    ${GREEN}MARCADO [X]${NC}"
-echo ""
-echo -e "  ${BOLD}Aba 'SSL':${NC}"
-echo -e "    - SSL Certificate:       ${CYAN}Certificado Cloudflare (*.fk.adm.br) ou Let's Encrypt${NC}"
-echo -e "    - Force SSL:             ${GREEN}MARCADO [X]${NC}"
-echo -e "    - HTTP/2 Support:        ${GREEN}MARCADO [X]${NC}"
-echo -e "    - HSTS Enabled:          ${GREEN}MARCADO [X]${NC}"
-echo ""
-echo -e "  ${BOLD}Aba 'Advanced' (Custom Nginx Configuration):${NC}"
-echo -e "  Cole o bloco abaixo para autorizar uploads de PDFs pesados e prevenir timeouts:"
-echo ""
-echo -e "${YELLOW}------------------------------------------------------------------------------${NC}"
-cat << 'NPMSNIP'
+
+if [[ "${SSL_MODE:-1}" == "1" ]]; then
+  echo -e "${CYAN}==============================================================================${NC}"
+  echo -e "${BOLD}GUIA NGINX PROXY MANAGER (NPM) — CENÁRIO: CLOUDFLARE TUNNEL (SSL NA BORDA)${NC}"
+  echo -e "${CYAN}==============================================================================${NC}"
+  echo -e "Como o domínio ${CYAN}vision.fk.adm.br${NC} é roteado pelo Cloudflare Tunnel:"
+  echo -e "  ${GREEN}✔ O SSL/TLS é gerenciado e renovado 100% pela própria Cloudflare na borda pública.${NC}"
+  echo -e "  ${YELLOW}✔ Não ative Let's Encrypt no NPM. Mantenha o SSL do NPM como 'None'.${NC}"
+  echo ""
+  echo -e "No seu painel do Nginx Proxy Manager, adicione/edite o ${BOLD}Proxy Host${NC}:"
+  echo ""
+  echo -e "  ${BOLD}Aba 'Details':${NC}"
+  echo -e "    - Domain Names:          ${CYAN}vision.fk.adm.br${NC}"
+  echo -e "    - Scheme:                ${CYAN}http${NC}"
+  echo -e "    - Forward Hostname / IP: ${CYAN}${DETECTED_IP}${NC}"
+  echo -e "    - Forward Port:          ${CYAN}${HOST_PORT}${NC}"
+  echo -e "    - Cache Assets:          ${YELLOW}DESMARCADO${NC} (O Nginx interno gerencia caches por hash)"
+  echo -e "    - Block Common Exploits: ${GREEN}MARCADO [X]${NC}"
+  echo -e "    - Websockets Support:    ${GREEN}MARCADO [X]${NC}"
+  echo ""
+  echo -e "  ${BOLD}Aba 'SSL':${NC}"
+  echo -e "    - SSL Certificate:       ${YELLOW}None (Desativado / Sem SSL no NPM)${NC}"
+  echo -e "    - Force SSL:             ${YELLOW}DESMARCADO${NC} (O Cloudflare Tunnel já entrega HTTPS na borda)"
+  echo ""
+  echo -e "  ${BOLD}Aba 'Advanced' (Custom Nginx Configuration):${NC}"
+  echo -e "  Cole o bloco abaixo para uploads de PDFs pesados e repasse do e-mail do Cloudflare:"
+  echo ""
+  echo -e "${YELLOW}------------------------------------------------------------------------------${NC}"
+  cat << 'NPMSNIP'
 client_max_body_size 100M;
 proxy_read_timeout 300s;
 proxy_connect_timeout 60s;
 proxy_send_timeout 300s;
 proxy_set_header X-Forwarded-Proto https;
+proxy_set_header Cf-Access-Authenticated-User-Email $http_cf_access_authenticated_user_email;
 NPMSNIP
-echo -e "${YELLOW}------------------------------------------------------------------------------${NC}"
+  echo -e "${YELLOW}------------------------------------------------------------------------------${NC}"
+elif [[ "${SSL_MODE:-1}" == "2" ]]; then
+  echo -e "${CYAN}==============================================================================${NC}"
+  echo -e "${BOLD}GUIA NGINX PROXY MANAGER (NPM) — CENÁRIO: CERTIFICADO LOCAL / LET'S ENCRYPT${NC}"
+  echo -e "${CYAN}==============================================================================${NC}"
+  echo -e "No seu painel do Nginx Proxy Manager, adicione o ${BOLD}Proxy Host${NC}:"
+  echo ""
+  echo -e "  ${BOLD}Aba 'Details':${NC}"
+  echo -e "    - Domain Names:          ${CYAN}vision.fk.adm.br${NC}"
+  echo -e "    - Scheme:                ${CYAN}http${NC}"
+  echo -e "    - Forward Hostname / IP: ${CYAN}${DETECTED_IP}${NC}"
+  echo -e "    - Forward Port:          ${CYAN}${HOST_PORT}${NC}"
+  echo -e "    - Block Common Exploits: ${GREEN}MARCADO [X]${NC}"
+  echo -e "    - Websockets Support:    ${GREEN}MARCADO [X]${NC}"
+  echo ""
+  echo -e "  ${BOLD}Aba 'SSL':${NC}"
+  echo -e "    - SSL Certificate:       ${CYAN}Request a new SSL Certificate (Let's Encrypt)${NC}"
+  echo -e "    - Force SSL:             ${GREEN}MARCADO [X]${NC}"
+  echo -e "    - HTTP/2 Support:        ${GREEN}MARCADO [X]${NC}"
+  echo -e "    - HSTS Enabled:          ${GREEN}MARCADO [X]${NC}"
+  echo ""
+  echo -e "  ${BOLD}Aba 'Advanced' (Custom Nginx Configuration):${NC}"
+  echo -e "${YELLOW}------------------------------------------------------------------------------${NC}"
+  cat << 'NPMSNIP2'
+client_max_body_size 100M;
+proxy_read_timeout 300s;
+proxy_connect_timeout 60s;
+proxy_send_timeout 300s;
+proxy_set_header X-Forwarded-Proto https;
+NPMSNIP2
+  echo -e "${YELLOW}------------------------------------------------------------------------------${NC}"
+else
+  echo -e "${CYAN}==============================================================================${NC}"
+  echo -e "${BOLD}ACESSO DIRETO PELA REDE INTERNA / IP:${NC}"
+  echo -e "${CYAN}==============================================================================${NC}"
+  echo -e "Acesse o sistema diretamente no navegador: ${CYAN}http://${DETECTED_IP}:${HOST_PORT}${NC}"
+fi
+
 echo ""
 echo -e "${BOLD}Comandos úteis de manutenção:${NC}"
 echo -e "  • Ver logs:          ${CYAN}cd ${INSTALL_DIR} && docker compose logs -f${NC}"
