@@ -2,6 +2,35 @@
 
 **Sistema Web Full-Stack de Inteligência, Auditoria Visual Lado a Lado e Gestão de Confiabilidade para Relatórios SAP Manutenção (SAP PM)**
 
+[![Stack](https://img.shields.io/badge/Stack-FastAPI%20%7C%20React%2019%20%7C%20Postgres%2016-blue.svg)](https://github.com/fabiano00chaves/ATCVision)
+[![Deploy](https://img.shields.io/badge/Deploy-Docker%20Compose%20%7C%20Proxmox%20LXC-green.svg)](https://github.com/fabiano00chaves/ATCVision)
+[![Security](https://img.shields.io/badge/Security-Argon2id%20%7C%20JWT%20HttpOnly%20%7C%20Zero--Leakage-purple.svg)](https://github.com/fabiano00chaves/ATCVision)
+
+---
+
+## 🚀 Guia Rápido de Instalação (Deploy em 1 Minuto)
+
+Para implantar o **ATC Vision** em produção no seu container Proxmox VE (LXC rodando Ubuntu Server 24.04 ou 26.04 LTS):
+
+```bash
+# 1. Clone o repositório oficial na pasta recomendada:
+sudo git clone https://github.com/fabiano00chaves/ATCVision.git /opt/atc-vision
+
+# 2. Acesse o diretório:
+cd /opt/atc-vision
+
+# 3. Execute o instalador automatizado como root:
+sudo bash install.sh
+```
+
+O script interativo `install.sh` cuida de **100% da configuração**:
+* Instala o Docker CE e Docker Compose automaticamente caso ainda não existam no sistema.
+* Gera segredos criptográficos de alta entropia para o banco PostgreSQL e tokens JWT.
+* Compila os contêineres e inicializa os serviços em background (`docker compose up -d`).
+* Executa as migrações assíncronas do banco de dados (Alembic).
+* Configura e habilita o serviço no systemd (`atc-vision.service`) para inicialização automática com o sistema operacional.
+* Imprime no terminal o resumo com as credenciais de acesso e os dados exatos para configurar no **Nginx Proxy Manager**.
+
 ---
 
 ## 1. Visão Geral da Arquitetura
@@ -81,49 +110,38 @@ A plataforma resolve o desafio crítico de perdas de dados em quebras de página
 
 ---
 
-## 4. Instalação e Deploy em Produção (Ubuntu Server 26.04 LTS)
+## 4. Requisitos do Proxmox VE (LXC Container)
 
-### 4.1. Instalação Automatizada com `install.sh`
-
-No container LXC Proxmox:
-
-```bash
-# Clone ou transfira os arquivos para o container:
-git clone <URL_DO_REPOSITORIO> /opt/atc-vision
-cd /opt/atc-vision
-
-# Execute o instalador interativo como root:
-sudo bash install.sh
-```
-
-O instalador realiza automaticamente:
-1. Instalação do Docker CE e Docker Compose plugin.
-2. Geração do arquivo `.env` com chaves criptográficas (`openssl rand -hex 32`).
-3. Build e subida dos contêineres Docker.
-4. Execução das migrações Alembic no PostgreSQL 16.
-5. Criação do serviço `atc-vision.service` no systemd para inicialização automática no boot.
-6. Apresentação do relatório final com os parâmetros para o Nginx Proxy Manager.
+Ao criar o container LXC no Proxmox VE para rodar o ATC Vision com Docker:
+* **Sistema Operacional:** Ubuntu Server 24.04 ou 26.04 LTS.
+* **Recursos Recomendados:**
+  * CPU: 2 a 4 vCPUs
+  * Memória RAM: 4 GB a 8 GB
+  * Armazenamento: 20 GB a 40 GB (SSD/NVMe recomendado)
+* **Permissões do Container LXC (Importante para Docker):**
+  * Nas configurações do container no Proxmox: **Options -> Features -> Habilite `nesting=1` e `keyctl=1`**.
 
 ---
 
 ## 5. Configuração no Nginx Proxy Manager (NPM)
 
-No painel do Nginx Proxy Manager que gerencia o domínio `vision.fk.adm.br`:
+No seu painel do Nginx Proxy Manager (que recebe o tráfego do Cloudflare Tunnel):
 
-1. **Details:**
+1. **Aba "Details":**
    * **Domain Names:** `vision.fk.adm.br`
    * **Scheme:** `http`
-   * **Forward Hostname / IP:** `<IP_DO_LXC_ATC_VISION>`
+   * **Forward Hostname / IP:** `<IP_DO_LXC_ATC_VISION>` (ex: `192.168.1.150`)
    * **Forward Port:** `8085`
-   * **Cache Assets:** Desmarcado
-   * **Block Common Exploits:** Marcado
-   * **Websockets Support:** Marcado
-2. **SSL:**
+   * **Cache Assets:** `Desmarcado` (o Nginx interno gerencia o cache com hash dos assets)
+   * **Block Common Exploits:** `Marcado [X]`
+   * **Websockets Support:** `Marcado [X]`
+2. **Aba "SSL":**
    * **SSL Certificate:** Certificado Cloudflare Origin (`*.fk.adm.br`) ou Let's Encrypt
-   * **Force SSL:** Marcado
-   * **HTTP/2 Support:** Marcado
-   * **HSTS Enabled:** Marcado
-3. **Advanced (Custom Nginx Configuration):**
+   * **Force SSL:** `Marcado [X]`
+   * **HTTP/2 Support:** `Marcado [X]`
+   * **HSTS Enabled:** `Marcado [X]`
+3. **Aba "Advanced" (Custom Nginx Configuration):**
+   Cole as diretivas abaixo para autorizar uploads de PDFs pesados e evitar timeouts durante o processamento OCR:
    ```nginx
    client_max_body_size 100M;
    proxy_read_timeout 300s;
@@ -134,9 +152,34 @@ No painel do Nginx Proxy Manager que gerencia o domínio `vision.fk.adm.br`:
 
 ---
 
-## 6. Desenvolvimento Local
+## 6. Comandos de Manutenção e Atualização
 
-### 6.1. Backend (Python 3.12+)
+### Atualizar o Sistema em Produção:
+```bash
+cd /opt/atc-vision
+git pull
+sudo docker compose build
+sudo docker compose up -d
+sudo docker compose exec -T backend alembic upgrade head
+```
+
+### Comandos Úteis do Serviço:
+```bash
+# Ver status dos contêineres:
+sudo docker compose ps
+
+# Visualizar logs em tempo real:
+sudo docker compose logs -f
+
+# Reiniciar o serviço via systemd:
+sudo systemctl restart atc-vision
+```
+
+---
+
+## 7. Desenvolvimento Local
+
+### 7.1. Backend (Python 3.12+)
 
 ```bash
 cd backend
@@ -151,7 +194,7 @@ pytest -v
 uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-### 6.2. Frontend (React 19 + Vite)
+### 7.2. Frontend (React 19 + Vite)
 
 ```bash
 cd frontend
@@ -165,7 +208,7 @@ Acesse localmente em `http://localhost:5173`. O Vite faz o proxy transparente da
 
 ---
 
-## 7. Atalhos de Teclado no Navegador
+## 8. Atalhos de Teclado no Navegador
 
 Na tela de **Explorador SAP** (`/ocorrencias`):
 * `1`: Alternar para **Modo Lista Completa**.
@@ -178,6 +221,6 @@ Na tela de **Explorador SAP** (`/ocorrencias`):
 
 ---
 
-## 8. Licença e Direitos
+## 9. Licença e Direitos
 
 Desenvolvido para auditoria técnica industrial e confiabilidade em aciarias. Todos os direitos reservados.
