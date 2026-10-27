@@ -8,9 +8,9 @@
 
 ---
 
-## 🚀 Guia Rápido de Instalação (Deploy em 1 Minuto)
+## 🚀 Guia Rápido de Instalação (Deploy em Instalação Limpa — VPS ou LXC)
 
-Para implantar o **ATC Vision** em produção no seu container Proxmox VE (LXC rodando Ubuntu Server 24.04 ou 26.04 LTS):
+O script instalador foi projetado para **instalações limpas e mínimas** do Ubuntu Server (24.04 ou 26.04 LTS), instalando automaticamente todas as dependências de sistema (Docker, Docker Compose, qpdf, poppler, certificados, locales, timezone e firewall) sem necessidade de preparação prévia manual.
 
 ```bash
 # 1. Clone o repositório oficial na pasta recomendada:
@@ -23,12 +23,17 @@ cd /opt/atc-vision
 sudo bash install.sh
 ```
 
-O script interativo `install.sh` cuida de **100% da configuração**:
-* Instala o Docker CE e Docker Compose automaticamente caso ainda não existam no sistema.
+O script interativo `install.sh` cuida de **100% da configuração a partir do zero**:
+* Trata travas de pacotes (`apt/dpkg locks`) de inicialização recente do sistema.
+* Instala ferramentas base (`curl`, `wget`, `git`, `gnupg`, `ca-certificates`, `iproute2`, `net-tools`, `tzdata`, `locales`, `fuse-overlayfs`).
+* Ajusta o fuso horário para `America/Sao_Paulo` e gera locales UTF-8.
+* Instala o Docker CE e Docker Compose oficiais para a versão do Ubuntu.
+* Libera portas no firewall UFW caso esteja ativo.
 * Gera segredos criptográficos de alta entropia para o banco PostgreSQL e tokens JWT.
 * Compila os contêineres e inicializa os serviços em background (`docker compose up -d`).
+* Provisiona os diretórios de armazenamento e permissões da pasta monitorada (`watch folder`).
 * Executa as migrações assíncronas do banco de dados (Alembic).
-* Configura e habilita o serviço no systemd (`atc-vision.service`) para inicialização automática com o sistema operacional.
+* Configura e habilita o serviço no systemd (`atc-vision.service`) para inicialização automática no boot.
 * Imprime no terminal o resumo com as credenciais de acesso e os dados exatos para configurar no **Nginx Proxy Manager**.
 
 ---

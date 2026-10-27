@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # ATC VISION — SCRIPT UNIVERSAL DE INSTALAÇÃO E DEPLOY EM PRODUÇÃO
-# Alvo: Proxmox VE (LXC Container Ubuntu Server 24.04 / 26.04 LTS)
+# Alvo: VPS ou Proxmox VE (LXC Container Ubuntu Server 24.04 / 26.04 LTS)
+# Instalação Completa do Zero (Clean / Fresh Install Ready)
 # Porta padrão: 8085 (Proxy Reverso Nginx Proxy Manager -> Cloudflare Tunnel)
 # ==============================================================================
 
 set -euo pipefail
+
+# Exportar variáveis para evitar travamentos de prompts interativos do apt
+export DEBIAN_FRONTEND=noninteractive
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
 
 # Paleta de Cores ANSI
 RED='\033[0;31m'
@@ -33,29 +39,51 @@ cat << "EOF"
  ██╔══██║   ██║   ██║         ╚██╗ ██╔╝██║╚════██║██║██║   ██║██║╚██╗██║
  ██║  ██║   ██║   ╚██████╗     ╚████╔╝ ██║███████║██║╚██████╔╝██║ ╚████║
  ╚═╝  ╚═╝   ╚═╝    ╚═════╝      ╚═══╝  ╚═╝╚══════╝╚═╝ ╚═════╝ ╚═╝  ╚═══╝
- Sistema Full-Stack de Inteligência e Auditoria Visual SAP PM (Aciaria)
+ Sistema Full-Stack de Inteligência e Confiabilidade SAP PM (Aciaria)
  Produção: https://vision.fk.adm.br | Host Port: 8085
 EOF
 echo ""
 echo -e "${CYAN}==============================================================================${NC}"
-echo -e "${BOLD}Iniciando configuração do ambiente ATC Vision no Ubuntu Server...${NC}"
+echo -e "${BOLD}Iniciando instalação completa em sistema limpo (Ubuntu Server VPS / LXC)...${NC}"
 echo -e "${CYAN}==============================================================================${NC}"
 echo ""
 
 # ------------------------------------------------------------------------------
-# 2. DETECÇÃO AUTOMÁTICA DE IP E INTERFACE DE REDE
+# 2. FUNÇÃO AUXILIAR: AGUARDAR LIBERAÇÃO DO APT / DPKG
 # ------------------------------------------------------------------------------
-DETECTED_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}' || hostname -I | awk '{print $1}')
-if [[ -z "${DETECTED_IP}" ]]; then
-  DETECTED_IP="127.0.0.1"
+wait_for_apt_lock() {
+  local max_wait=60
+  local count=0
+  while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || \
+        fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || \
+        fuser /var/lib/dpkg/lock >/dev/null 2>&1; do
+    if [[ $count -ge $max_wait ]]; then
+      echo -e "${YELLOW}[AVISO] O gerenciador de pacotes (apt/dpkg) ainda está ocupado por outro processo.${NC}"
+      echo -e "${YELLOW}Aguardando liberação... ($count segundos)${NC}"
+    fi
+    sleep 2
+    count=$((count + 2))
+  done
+}
+
+# ------------------------------------------------------------------------------
+# 3. DETECÇÃO AUTOMÁTICA DE IP DO CONTAINER / HOST
+# ------------------------------------------------------------------------------
+DETECTED_IP="127.0.0.1"
+if command -v ip &>/dev/null; then
+  DETECTED_IP=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{print $7; exit}' || ip -4 addr show scope global | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -n1 || echo "127.0.0.1")
+elif command -v hostname &>/dev/null; then
+  DETECTED_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "127.0.0.1")
 fi
 
-echo -e "${BLUE}[INFO] IP do container detectado:${NC} ${BOLD}${DETECTED_IP}${NC}"
+echo -e "${BLUE}[INFO] IP de rede detectado:${NC} ${BOLD}${DETECTED_IP}${NC}"
 
 # ------------------------------------------------------------------------------
-# 3. PERGUNTAS E PARÂMETROS INTERATIVOS
+# 4. QUESTIONÁRIO INTERATIVO DE CONFIGURAÇÃO INICIAL
 # ------------------------------------------------------------------------------
+DEFAULT_REPO_URL="https://github.com/fabiano00chaves/ATCVision.git"
 INSTALL_DIR="/opt/atc-vision"
+
 read -rp "Diretório de instalação [Padrão: ${INSTALL_DIR}]: " INPUT_DIR
 INSTALL_DIR="${INPUT_DIR:-$INSTALL_DIR}"
 
@@ -77,72 +105,139 @@ while true; do
 done
 
 echo ""
-echo -e "${CYAN}--- Configuração do Repositório Git ---${NC}"
+echo -e "${CYAN}--- Origem dos Arquivos da Aplicação ---${NC}"
 echo "1) O código já está no diretório atual ($(pwd))"
-echo "2) Clonar repositório Git público"
-echo "3) Clonar repositório Git privado (com Token PAT)"
-read -rp "Escolha a origem do código [1-3, Padrão 1]: " GIT_MODE
-GIT_MODE="${GIT_MODE:-1}"
+echo "2) Clonar do repositório GitHub público (Padrão: ${DEFAULT_REPO_URL})"
+echo "3) Clonar do repositório GitHub privado (com Token PAT)"
+read -rp "Escolha a origem [1-3, Padrão 2]: " GIT_MODE
+GIT_MODE="${GIT_MODE:-2}"
 
-REPO_URL=""
+REPO_URL="${DEFAULT_REPO_URL}"
 GIT_PAT=""
 
 if [[ "${GIT_MODE}" == "2" ]]; then
-  read -rp "URL do repositório público (ex: https://github.com/org/atc-vision.git): " REPO_URL
+  read -rp "URL do repositório [Padrão: ${DEFAULT_REPO_URL}]: " INPUT_REPO
+  REPO_URL="${INPUT_REPO:-$DEFAULT_REPO_URL}"
 elif [[ "${GIT_MODE}" == "3" ]]; then
-  read -rp "URL do repositório privado (ex: github.com/org/atc-vision.git): " RAW_REPO_URL
-  # Remove protocolo se digitado
+  read -rp "URL do repositório (ex: github.com/fabiano00chaves/ATCVision.git): " RAW_REPO_URL
+  RAW_REPO_URL="${RAW_REPO_URL:-github.com/fabiano00chaves/ATCVision.git}"
   CLEAN_REPO="${RAW_REPO_URL#https://}"
   CLEAN_REPO="${CLEAN_REPO#http://}"
-  echo -ne "Personal Access Token (PAT) do Git [oculto]: "
+  echo -ne "Personal Access Token (PAT) do GitHub [oculto]: "
   read -rs GIT_PAT
   echo ""
   REPO_URL="https://${GIT_PAT}@${CLEAN_REPO}"
 fi
 
 # ------------------------------------------------------------------------------
-# 4. INSTALAÇÃO DE DEPENDÊNCIAS DO SISTEMA
+# 5. INSTALAÇÃO DE TODAS AS DEPENDÊNCIAS DO SISTEMA LIMPO
 # ------------------------------------------------------------------------------
 echo ""
 echo -e "${CYAN}------------------------------------------------------------------------------${NC}"
-echo -e "${BOLD}[1/6] Atualizando pacotes do Ubuntu e instalando Docker...${NC}"
+echo -e "${BOLD}[1/7] Atualizando repositórios e instalando dependências base...${NC}"
 echo -e "${CYAN}------------------------------------------------------------------------------${NC}"
 
+wait_for_apt_lock
 apt-get update -qq
+
+# Instalar todas as ferramentas base necessárias em um Ubuntu limpo
 apt-get install -y -qq \
+  apt-transport-https \
   ca-certificates \
   curl \
+  wget \
+  git \
   gnupg \
   lsb-release \
-  git \
+  software-properties-common \
+  iproute2 \
+  net-tools \
   openssl \
+  tzdata \
+  locales \
   qpdf \
-  poppler-utils
+  poppler-utils \
+  tar \
+  gzip \
+  unzip \
+  fuse-overlayfs
 
-# Instalação do Docker se não presente
-if ! command -v docker &> /dev/null; then
-  echo -e "${BLUE}[INFO] Instalando Docker CE e Docker Compose Plugin...${NC}"
+# Configurar Timezone para America/Sao_Paulo (Horário padrão industrial)
+echo -e "${BLUE}[INFO] Ajustando fuso horário para America/Sao_Paulo...${NC}"
+ln -fs /usr/share/zoneinfo/America/Sao_Paulo /etc/localtime
+dpkg-reconfigure -f noninteractive tzdata >/dev/null 2>&1 || true
+
+# Configurar locale UTF-8
+locale-gen pt_BR.UTF-8 en_US.UTF-8 >/dev/null 2>&1 || true
+update-locale LANG=pt_BR.UTF-8 LC_ALL=pt_BR.UTF-8 >/dev/null 2>&1 || true
+
+# ------------------------------------------------------------------------------
+# 6. INSTALAÇÃO DO DOCKER ENGINE E DOCKER COMPOSE PLUGIN
+# ------------------------------------------------------------------------------
+echo ""
+echo -e "${CYAN}------------------------------------------------------------------------------${NC}"
+echo -e "${BOLD}[2/7] Verificando e instalando Docker CE e Docker Compose...${NC}"
+echo -e "${CYAN}------------------------------------------------------------------------------${NC}"
+
+if ! command -v docker &> /dev/null || ! docker compose version &> /dev/null; then
+  echo -e "${BLUE}[INFO] Instalando Docker CE oficial...${NC}"
   install -m 0755 -d /etc/apt/keyrings
   curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
   chmod a+r /etc/apt/keyrings/docker.asc
 
+  # Identificar codename de lançamento ou usar fallback para garantir repositório válido
+  UBUNTU_CODENAME=$(lsb_release -cs 2>/dev/null || echo "noble")
+  case "$UBUNTU_CODENAME" in
+    noble|jammy|focal) ;;
+    *) UBUNTU_CODENAME="noble" ;; # Fallback seguro para versões futuras ou pre-releases
+  esac
+
   echo \
     "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
-    $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+    ${UBUNTU_CODENAME} stable" | \
     tee /etc/apt/sources.list.d/docker.list > /dev/null
 
+  wait_for_apt_lock
   apt-get update -qq
   apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 fi
 
+# Configuração para containers LXC (suporte a storage driver overlay2 e fuse-overlayfs)
+mkdir -p /etc/docker
+if [[ ! -f /etc/docker/daemon.json ]]; then
+  cat > /etc/docker/daemon.json << 'EOF'
+{
+  "log-driver": "json-file",
+  "log-opts": {
+    "max-size": "50m",
+    "max-file": "3"
+  }
+}
+EOF
+fi
+
+systemctl daemon-reload
 systemctl enable --now docker
 
 # ------------------------------------------------------------------------------
-# 5. PREPARAÇÃO DO DIRETÓRIO DE INSTALAÇÃO
+# 7. AJUSTES DE FIREWALL (UFW) CASO ATIVO
+# ------------------------------------------------------------------------------
+if command -v ufw &>/dev/null; then
+  if ufw status | grep -q "Status: active"; then
+    echo -e "${BLUE}[INFO] UFW ativo detectado. Liberando portas de acesso...${NC}"
+    ufw allow 22/tcp comment 'SSH' >/dev/null 2>&1 || true
+    ufw allow "${HOST_PORT}/tcp" comment 'ATC Vision Web' >/dev/null 2>&1 || true
+    ufw reload >/dev/null 2>&1 || true
+    echo -e "  ${GREEN}✔ Portas 22 e ${HOST_PORT} liberadas no firewall UFW.${NC}"
+  fi
+fi
+
+# ------------------------------------------------------------------------------
+# 8. PREPARAÇÃO DO DIRETÓRIO DE INSTALAÇÃO E CÓDIGO FONTE
 # ------------------------------------------------------------------------------
 echo ""
 echo -e "${CYAN}------------------------------------------------------------------------------${NC}"
-echo -e "${BOLD}[2/6] Preparando diretório ${INSTALL_DIR}...${NC}"
+echo -e "${BOLD}[3/7] Preparando diretório ${INSTALL_DIR}...${NC}"
 echo -e "${CYAN}------------------------------------------------------------------------------${NC}"
 
 mkdir -p "${INSTALL_DIR}"
@@ -167,11 +262,11 @@ fi
 cd "${INSTALL_DIR}"
 
 # ------------------------------------------------------------------------------
-# 6. GERAÇÃO DO ARQUIVO .env COM SEGREDOS CRIPTOGRÁFICOS
+# 9. GERAÇÃO DO ARQUIVO .env COM SEGREDOS CRIPTOGRÁFICOS
 # ------------------------------------------------------------------------------
 echo ""
 echo -e "${CYAN}------------------------------------------------------------------------------${NC}"
-echo -e "${BOLD}[3/6] Gerando arquivo .env e chaves criptográficas...${NC}"
+echo -e "${BOLD}[4/7] Gerando arquivo .env e chaves criptográficas de alta entropia...${NC}"
 echo -e "${CYAN}------------------------------------------------------------------------------${NC}"
 
 JWT_SECRET=$(openssl rand -hex 32)
@@ -210,11 +305,11 @@ chmod 600 "${INSTALL_DIR}/.env"
 echo -e "${GREEN}[OK] Arquivo .env configurado com permissões restritas (600).${NC}"
 
 # ------------------------------------------------------------------------------
-# 7. BUILD E INICIALIZAÇÃO DOS CONTAINERS (DOCKER COMPOSE)
+# 10. BUILD E INICIALIZAÇÃO DOS CONTAINERS (DOCKER COMPOSE)
 # ------------------------------------------------------------------------------
 echo ""
 echo -e "${CYAN}------------------------------------------------------------------------------${NC}"
-echo -e "${BOLD}[4/6] Compilando imagens Docker e inicializando contêineres...${NC}"
+echo -e "${BOLD}[5/7] Compilando imagens Docker e inicializando contêineres...${NC}"
 echo -e "${CYAN}------------------------------------------------------------------------------${NC}"
 
 docker compose down --remove-orphans 2>/dev/null || true
@@ -222,15 +317,25 @@ docker compose build
 docker compose up -d
 
 # ------------------------------------------------------------------------------
-# 8. EXECUÇÃO DE MIGRAÇÕES DO BANCO DE DADOS
+# 11. PROVISIONAMENTO DE VOLUMES E PERMISSÕES DO WATCH FOLDER
+# ------------------------------------------------------------------------------
+echo -e "${BLUE}[INFO] Configurando permissões do volume de arquivos monitorados...${NC}"
+# Aguardar o docker compose criar o volume atc_vision_storage
+sleep 3
+WATCH_VOLUME_DIR="/var/lib/docker/volumes/atc_vision_storage/_data/watch"
+mkdir -p "${WATCH_VOLUME_DIR}" 2>/dev/null || true
+chmod 777 "${WATCH_VOLUME_DIR}" 2>/dev/null || true
+
+# ------------------------------------------------------------------------------
+# 12. EXECUÇÃO DE MIGRAÇÕES DO BANCO DE DADOS
 # ------------------------------------------------------------------------------
 echo ""
 echo -e "${CYAN}------------------------------------------------------------------------------${NC}"
-echo -e "${BOLD}[5/6] Aguardando banco de dados e executando migrações Alembic...${NC}"
+echo -e "${BOLD}[6/7] Aguardando banco de dados e executando migrações Alembic...${NC}"
 echo -e "${CYAN}------------------------------------------------------------------------------${NC}"
 
-echo -ne "${BLUE}[INFO] Aguardando o PostgreSQL inicializar...${NC}"
-for i in {1..30}; do
+echo -ne "${BLUE}[INFO] Aguardando o PostgreSQL 16 inicializar...${NC}"
+for i in {1..40}; do
   if docker compose exec -T db pg_isready -U atc_user -d atc_vision > /dev/null 2>&1; then
     echo -e " ${GREEN}[Conectado!]${NC}"
     break
@@ -244,11 +349,11 @@ docker compose exec -T backend alembic upgrade head
 echo -e "${GREEN}[OK] Migrações concluídas com sucesso!${NC}"
 
 # ------------------------------------------------------------------------------
-# 9. INSTALAÇÃO DO SERVIÇO SYSTEMD (INICIALIZAÇÃO NO BOOT)
+# 13. INSTALAÇÃO DO SERVIÇO SYSTEMD (INICIALIZAÇÃO NO BOOT)
 # ------------------------------------------------------------------------------
 echo ""
 echo -e "${CYAN}------------------------------------------------------------------------------${NC}"
-echo -e "${BOLD}[6/6] Criando serviço systemd atc-vision.service...${NC}"
+echo -e "${BOLD}[7/7] Criando serviço systemd atc-vision.service...${NC}"
 echo -e "${CYAN}------------------------------------------------------------------------------${NC}"
 
 cat > /etc/systemd/system/atc-vision.service << EOF
@@ -271,10 +376,10 @@ EOF
 
 systemctl daemon-reload
 systemctl enable atc-vision.service
-echo -e "${GREEN}[OK] Serviço systemd atc-vision habilitado para boot automático no Proxmox LXC.${NC}"
+echo -e "${GREEN}[OK] Serviço systemd atc-vision habilitado para boot automático no Proxmox LXC / VPS.${NC}"
 
 # ------------------------------------------------------------------------------
-# 10. RELATÓRIO FINAL E MANUAL DO NGINX PROXY MANAGER (NPM)
+# 14. RELATÓRIO FINAL E MANUAL DO NGINX PROXY MANAGER (NPM)
 # ------------------------------------------------------------------------------
 clear
 echo -e "${GREEN}==============================================================================${NC}"
@@ -326,9 +431,9 @@ NPMSNIP
 echo -e "${YELLOW}------------------------------------------------------------------------------${NC}"
 echo ""
 echo -e "${BOLD}Comandos úteis de manutenção:${NC}"
-echo -e "  • Ver logs:         ${CYAN}cd ${INSTALL_DIR} && docker compose logs -f${NC}"
-echo -e "  • Reiniciar tudo:   ${CYAN}systemctl restart atc-vision${NC}"
+echo -e "  • Ver logs:          ${CYAN}cd ${INSTALL_DIR} && docker compose logs -f${NC}"
+echo -e "  • Reiniciar tudo:    ${CYAN}systemctl restart atc-vision${NC}"
 echo -e "  • Inspecionar status:${CYAN}docker compose ps${NC}"
 echo ""
-echo -e "${GREEN}Deploy concluído! Acesse o painel e bom trabalho.${NC}"
+echo -e "${GREEN}Deploy concluído com sucesso em instalação limpa!${NC}"
 EOF
