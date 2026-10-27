@@ -309,6 +309,19 @@ echo -e "${CYAN}----------------------------------------------------------------
 JWT_SECRET=$(openssl rand -hex 32)
 POSTGRES_PASS=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 20)
 
+# Se já existir um arquivo .env, PRESERVAR a senha do PostgreSQL e chave JWT já em uso
+if [[ -f "${INSTALL_DIR}/.env" ]]; then
+  EXISTING_PG_PASS=$(grep -E '^POSTGRES_PASSWORD=' "${INSTALL_DIR}/.env" | cut -d'=' -f2- | tr -d '\r\n' || true)
+  EXISTING_JWT=$(grep -E '^JWT_SECRET_KEY=' "${INSTALL_DIR}/.env" | cut -d'=' -f2- | tr -d '\r\n' || true)
+  if [[ -n "${EXISTING_PG_PASS}" ]]; then
+    POSTGRES_PASS="${EXISTING_PG_PASS}"
+    echo -e "${BLUE}[INFO] Preservando senha existente do PostgreSQL para manter compatibilidade com o volume de dados.${NC}"
+  fi
+  if [[ -n "${EXISTING_JWT}" ]]; then
+    JWT_SECRET="${EXISTING_JWT}"
+  fi
+fi
+
 cat > "${INSTALL_DIR}/.env" << EOF
 # ==============================================================================
 # ATC VISION — AMBIENTE DE PRODUÇÃO GERADO AUTOMATICAMENTE
@@ -386,8 +399,35 @@ for i in {1..40}; do
   sleep 1
 done
 
-echo -e "${BLUE}[INFO] Executando migrações do schema de dados...${NC}"
-docker compose exec -T backend alembic upgrade head
+# Sincroniza a senha do usuário com a definida no .env (caso o volume pgdata já existisse com senha anterior)
+echo -ne "${BLUE}[INFO] Sincronizando credenciais do PostgreSQL com o ambiente local...${NC}"
+docker compose exec -T db psql -U atc_user -d atc_vision -c "ALTER USER atc_user WITH PASSWORD '${POSTGRES_PASS}';" > /dev/null 2>&1 || \
+docker compose exec -T -u postgres db psql -U postgres -d postgres -c "ALTER USER atc_user WITH PASSWORD '${POSTGRES_PASS}';" > /dev/null 2>&1 || true
+echo -e " ${GREEN}[Sincronizado!]${NC}"
+
+# Reinicia o backend para limpar o pool de conexões com a nova credencial autenticada
+echo -ne "${BLUE}[INFO] Recarregando backend para aplicar credenciais...${NC}"
+docker compose restart backend > /dev/null 2>&1
+for i in {1..30}; do
+  if docker compose exec -T backend python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')" > /dev/null 2>&1; then
+    echo -e " ${GREEN}[Backend Conectado!]${NC}"
+    break
+  fi
+  echo -ne "."
+  sleep 1
+done
+
+echo -e "${BLUE}[INFO] Executando migrações do schema de dados (Alembic)...${NC}"
+if ! docker compose exec -T backend alembic upgrade head; then
+  echo -e "${YELLOW}[AVISO] Primeira tentativa do Alembic falhou. Tentando novamente após pausa de 3s...${NC}"
+  sleep 3
+  docker compose exec -T backend alembic upgrade head || {
+    echo -e "${RED}[ERRO] Falha ao aplicar migrações Alembic.${NC}"
+    echo -e "${YELLOW}Exibindo logs do banco de dados e backend:${NC}"
+    docker compose logs --tail 30
+    exit 1
+  }
+fi
 echo -e "${GREEN}[OK] Migrações concluídas com sucesso!${NC}"
 
 # ------------------------------------------------------------------------------

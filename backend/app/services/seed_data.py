@@ -133,6 +133,11 @@ async def seed_initial_data(db: AsyncSession) -> None:
             is_admin=True,
         )
         db.add(new_admin)
+    else:
+        # Atualiza a senha caso tenha sido redefinida na instalação/variáveis de ambiente
+        admin.hashed_password = hash_password(settings.ADMIN_PASSWORD)
+        admin.is_admin = True
+        db.add(admin)
 
     # 2. Presets
     preset_count_res = await db.execute(select(FilterPreset))
