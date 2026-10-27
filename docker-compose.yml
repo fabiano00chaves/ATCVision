@@ -32,8 +32,9 @@ services:
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change_this_secret_key_in_production}
       ADMIN_INITIAL_EMAIL: ${ADMIN_INITIAL_EMAIL:-admin@atc.vision}
       ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:-Admin@Vision2026}
+      WATCH_FOLDER_DIR: /app/storage/watch
       WATCH_FOLDER_PATH: /app/storage/watch
-      STORAGE_DIR: /app/storage
+      STORAGE_DIR: /app/storage/uploads
       CORS_ORIGINS: '["https://vision.fk.adm.br", "http://localhost:8085", "http://127.0.0.1:8085"]'
       COOKIE_SECURE: "true"
       MAX_UPLOAD_SIZE_MB: "100"
@@ -41,10 +42,10 @@ services:
       - atc_storage:/app/storage
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/api/v1/health"]
-      interval: 15s
+      interval: 10s
       timeout: 5s
-      start_period: 15s
-      retries: 3
+      start_period: 30s
+      retries: 5
     networks:
       - atc_network
 

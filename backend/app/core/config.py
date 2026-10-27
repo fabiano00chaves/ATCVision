@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Any, List
-from pydantic import Field, field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -35,8 +35,14 @@ class Settings(BaseSettings):
     MASTER_API_KEY: str = "atc-master-api-key-change-in-production"
 
     # Initial Admin Seed
-    ADMIN_EMAIL: str = "admin@vision.fk.adm.br"
-    ADMIN_PASSWORD: str = "Admin@ATC2026!"
+    ADMIN_EMAIL: str = Field(
+        default="admin@vision.fk.adm.br",
+        validation_alias=AliasChoices("ADMIN_EMAIL", "ADMIN_INITIAL_EMAIL"),
+    )
+    ADMIN_PASSWORD: str = Field(
+        default="Admin@ATC2026!",
+        validation_alias=AliasChoices("ADMIN_PASSWORD", "ADMIN_INITIAL_PASSWORD"),
+    )
     ADMIN_NAME: str = "Administrador ATC"
 
     # Database
@@ -46,8 +52,14 @@ class Settings(BaseSettings):
 
     # Storage Paths
     BASE_DIR: Path = Path(__file__).resolve().parent.parent.parent
-    STORAGE_DIR: Path = Field(default=Path("/opt/atc-vision/data/uploads"))
-    WATCH_FOLDER_DIR: Path = Field(default=Path("/opt/atc-vision/data/inbox"))
+    STORAGE_DIR: Path = Field(
+        default=Path("/app/storage/uploads"),
+        validation_alias=AliasChoices("STORAGE_DIR", "STORAGE_PATH"),
+    )
+    WATCH_FOLDER_DIR: Path = Field(
+        default=Path("/app/storage/watch"),
+        validation_alias=AliasChoices("WATCH_FOLDER_DIR", "WATCH_FOLDER_PATH", "WATCH_FOLDER"),
+    )
 
     # OCR Settings
     OCR_ENABLED: bool = True
@@ -76,13 +88,19 @@ class Settings(BaseSettings):
     @field_validator("STORAGE_DIR", "WATCH_FOLDER_DIR", mode="after")
     @classmethod
     def resolve_paths(cls, v: Path) -> Path:
-        # Fallback to local paths if /opt does not exist (e.g. during local dev/tests on Windows)
-        if not os.path.exists(v.parent) and os.name == "nt":
-            local_fallback = Path("./data") / v.name
-            local_fallback.mkdir(parents=True, exist_ok=True)
-            return local_fallback
-        v.mkdir(parents=True, exist_ok=True)
-        return v
+        try:
+            v.mkdir(parents=True, exist_ok=True)
+            return v
+        except Exception:
+            # Fallback to local ./data or /tmp/atc_vision if path creation is denied
+            fallback = Path("./data") / v.name
+            try:
+                fallback.mkdir(parents=True, exist_ok=True)
+                return fallback
+            except Exception:
+                tmp_fallback = Path("/tmp/atc_vision") / v.name
+                tmp_fallback.mkdir(parents=True, exist_ok=True)
+                return tmp_fallback
 
 
 settings = Settings()

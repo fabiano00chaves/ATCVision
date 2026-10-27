@@ -349,18 +349,24 @@ echo -e "${CYAN}----------------------------------------------------------------
 echo -e "${BOLD}[5/7] Compilando imagens Docker e inicializando contêineres...${NC}"
 echo -e "${CYAN}------------------------------------------------------------------------------${NC}"
 
+# Pre-provisionar volumes do Docker com permissões amplas
+docker volume create atc_vision_storage >/dev/null 2>&1 || true
+docker volume create atc_vision_pgdata >/dev/null 2>&1 || true
+mkdir -p /var/lib/docker/volumes/atc_vision_storage/_data/watch \
+         /var/lib/docker/volumes/atc_vision_storage/_data/pdfs \
+         /var/lib/docker/volumes/atc_vision_storage/_data/reports \
+         /var/lib/docker/volumes/atc_vision_storage/_data/uploads 2>/dev/null || true
+chmod -R 777 /var/lib/docker/volumes/atc_vision_storage/_data 2>/dev/null || true
+
 docker compose down --remove-orphans 2>/dev/null || true
 docker compose build
-docker compose up -d
 
-# ------------------------------------------------------------------------------
-# 13. PROVISIONAMENTO DE VOLUMES E PERMISSÕES DO WATCH FOLDER
-# ------------------------------------------------------------------------------
-echo -e "${BLUE}[INFO] Configurando permissões do volume de arquivos monitorados...${NC}"
-sleep 3
-WATCH_VOLUME_DIR="/var/lib/docker/volumes/atc_vision_storage/_data/watch"
-mkdir -p "${WATCH_VOLUME_DIR}" 2>/dev/null || true
-chmod 777 "${WATCH_VOLUME_DIR}" 2>/dev/null || true
+if ! docker compose up -d; then
+  echo -e "${RED}[ERRO CRÍTICO] Falha ao inicializar contêineres Docker.${NC}"
+  echo -e "${YELLOW}Exibindo logs do backend para diagnóstico:${NC}"
+  docker compose logs backend --tail 50 || true
+  exit 1
+fi
 
 # ------------------------------------------------------------------------------
 # 14. EXECUÇÃO DE MIGRAÇÕES DO BANCO DE DADOS

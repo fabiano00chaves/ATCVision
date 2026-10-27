@@ -24,31 +24,50 @@ log = logging.getLogger("atc.main")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("Starting %s v%s", settings.PROJECT_NAME, settings.PROJECT_VERSION)
-    # Ensure tables exist (Alembic handles migrations, create_all provides quick dev fallback)
-    async with engine.begin() as conn:
-        # If running on PostgreSQL, enable pg_trgm and unaccent
-        if not settings.DATABASE_URL.startswith("sqlite"):
-            try:
-                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
-                await conn.execute(text("CREATE EXTENSION IF NOT EXISTS unaccent;"))
-            except Exception as e:
-                log.warning("Could not create postgres extensions pg_trgm/unaccent: %s", e)
-        await conn.run_sync(Base.metadata.create_all)
-
-    # Seed initial data (Admin, default Presets, default Report Templates, Settings)
-    async with async_session_factory() as db:
+    
+    # 1. Enable PostgreSQL extensions in autocommit mode so failed attempts never abort subsequent transactions
+    if not settings.DATABASE_URL.startswith("sqlite"):
         try:
-            await seed_initial_data(db)
+            async with engine.connect() as ext_conn:
+                await ext_conn.execution_options(isolation_level="AUTOCOMMIT")
+                try:
+                    await ext_conn.execute(text("CREATE EXTENSION IF NOT EXISTS pg_trgm;"))
+                except Exception as ext_err:
+                    log.warning("pg_trgm extension notice: %s", ext_err)
+                try:
+                    await ext_conn.execute(text("CREATE EXTENSION IF NOT EXISTS unaccent;"))
+                except Exception as ext_err:
+                    log.warning("unaccent extension notice: %s", ext_err)
         except Exception as e:
-            log.warning("Error running seed data: %s", e)
+            log.warning("Could not probe postgres extensions: %s", e)
 
-    # Start watch folder monitoring in background
-    start_watch_folder_background()
+    # 2. Ensure tables exist in clean transaction
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception as e:
+        log.error("Error creating tables in lifespan: %s", e)
+
+    # 3. Seed initial data (Admin, default Presets, default Report Templates, Settings)
+    try:
+        async with async_session_factory() as db:
+            await seed_initial_data(db)
+    except Exception as e:
+        log.warning("Error running seed data: %s", e)
+
+    # 4. Start watch folder monitoring in background
+    try:
+        start_watch_folder_background()
+    except Exception as e:
+        log.warning("Error starting watch folder background task: %s", e)
 
     yield
 
     log.info("Shutting down %s", settings.PROJECT_NAME)
-    stop_watch_folder_background()
+    try:
+        stop_watch_folder_background()
+    except Exception:
+        pass
     await engine.dispose()
 
 

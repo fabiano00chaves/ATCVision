@@ -8,7 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 # Set test environment
 os.environ["ENVIRONMENT"] = "test"
-os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///file:memtest?mode=memory&cache=shared&uri=true"
+os.environ["COOKIE_SECURE"] = "false"
 os.environ["DEBUG"] = "true"
 
 from app.core.config import settings
@@ -18,7 +19,7 @@ from app.main import app
 from app.services.seed_data import seed_initial_data
 
 test_engine = create_async_engine(
-    "sqlite+aiosqlite:///:memory:",
+    "sqlite+aiosqlite:///file:memtest?mode=memory&cache=shared&uri=true",
     connect_args={"check_same_thread": False},
 )
 TestSessionLocal = async_sessionmaker(

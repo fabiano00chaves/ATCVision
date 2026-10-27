@@ -12,10 +12,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Install system dependencies including Tesseract Portuguese/English and OCRmyPDF tools
+# Install system dependencies including Tesseract Portuguese/English, OCRmyPDF and gosu
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
+    gosu \
     libpq-dev \
     libpq5 \
     poppler-utils \
@@ -34,19 +35,20 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy application source code and migrations
 COPY . .
 
-# Create storage directories for PDFs, reports, and watch folder
-RUN mkdir -p /app/storage/pdfs /app/storage/watch /app/storage/reports
+# Setup entrypoint script for safe non-root volume permissions
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# Run as non-root user for DevSecOps best practices
-RUN groupadd -g 10001 atc && \
+# Create local storage directories and system user
+RUN mkdir -p /app/storage/pdfs /app/storage/watch /app/storage/reports /app/storage/uploads && \
+    groupadd -g 10001 atc && \
     useradd -u 10001 -g atc -s /bin/bash -m atc && \
     chown -R atc:atc /app
 
-USER atc
-
 EXPOSE 8000
 
-HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=5 \
   CMD curl -f http://127.0.0.1:8000/api/v1/health || exit 1
 
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
