@@ -1,0 +1,100 @@
+# ==============================================================================
+# ATC VISION — REGRAS DE EXCLUSÃO GIT (BLINDAGEM CONTRA VAZAMENTO DE CREDENCIAIS)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. ARQUIVOS DE AMBIENTE, CREDENCIAIS E SEGREDOS (NUNCA COMITAR!)
+# ------------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.env
+*.key
+*.pem
+*.cert
+*.crt
+*.pfx
+*.p12
+*.token
+*.pat
+*secret*
+*credential*
+credentials.json
+client_secrets.json
+
+# ------------------------------------------------------------------------------
+# 2. PYTHON, AMBIENTES VIRTUAIS & TESTES
+# ------------------------------------------------------------------------------
+backend/.venv/
+.venv/
+venv/
+ENV/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+*.sqlite3
+*.db
+*.sqlite
+backend/test.db
+test.db
+
+# ------------------------------------------------------------------------------
+# 3. NODE.JS, PACOTES & ASSETS DE PRODUÇÃO
+# ------------------------------------------------------------------------------
+frontend/node_modules/
+node_modules/
+frontend/dist/
+dist/
+.npm
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ------------------------------------------------------------------------------
+# 4. ARMAZENAMENTO DE PDFS E DADOS LOCAIS DO SISTEMA
+# ------------------------------------------------------------------------------
+backend/storage/pdfs/*
+!backend/storage/pdfs/.gitkeep
+backend/storage/watch/*
+!backend/storage/watch/.gitkeep
+backend/storage/reports/*
+!backend/storage/reports/.gitkeep
+data/inbox/*
+!data/inbox/.gitkeep
+data/uploads/*
+!data/uploads/.gitkeep
+tmp/
+temp/
+
+# ------------------------------------------------------------------------------
+# 5. LOGS, DUMPS E ARQUIVOS TEMPORÁRIOS
+# ------------------------------------------------------------------------------
+*.log
+logs/
+*.pid
+*.seed
+
+# ------------------------------------------------------------------------------
+# 6. ARQUIVOS DE SISTEMA OPERACIONAL E IDES
+# ------------------------------------------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+[Dd]esktop.ini
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+*~

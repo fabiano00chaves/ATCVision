@@ -1,0 +1,80 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: atc-vision-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-atc_vision}
+      POSTGRES_USER: ${POSTGRES_USER:-atc_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-atc_vision_secure_pass_2026}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-atc_user} -d ${POSTGRES_DB:-atc_vision}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - atc_network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: atc-vision-backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: production
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-atc_user}:${POSTGRES_PASSWORD:-atc_vision_secure_pass_2026}@db:5432/${POSTGRES_DB:-atc_vision}
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-change_this_secret_key_in_production}
+      ADMIN_INITIAL_EMAIL: ${ADMIN_INITIAL_EMAIL:-admin@atc.vision}
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:-Admin@Vision2026}
+      WATCH_FOLDER_PATH: /app/storage/watch
+      STORAGE_DIR: /app/storage
+      CORS_ORIGINS: '["https://vision.fk.adm.br", "http://localhost:8085", "http://127.0.0.1:8085"]'
+      COOKIE_SECURE: "true"
+      MAX_UPLOAD_SIZE_MB: "100"
+    volumes:
+      - atc_storage:/app/storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000/api/v1/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    networks:
+      - atc_network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: atc-vision-frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${HOST_PORT:-8085}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:8080/healthz"]
+      interval: 20s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    networks:
+      - atc_network
+
+volumes:
+  pgdata:
+    name: atc_vision_pgdata
+  atc_storage:
+    name: atc_vision_storage
+
+networks:
+  atc_network:
+    name: atc_vision_network
+    driver: bridge

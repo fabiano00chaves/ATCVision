@@ -1,0 +1,203 @@
+@import 'tailwindcss';
+@import 'react-pdf/dist/Page/TextLayer.css';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --background: oklch(0.985 0.002 247);
+  --foreground: oklch(0.21 0.02 260);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.21 0.02 260);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.21 0.02 260);
+  --primary: oklch(0.72 0.17 65); /* amber */
+  --primary-foreground: oklch(0.2 0.03 60);
+  --secondary: oklch(0.955 0.006 250);
+  --secondary-foreground: oklch(0.26 0.02 260);
+  --muted: oklch(0.955 0.006 250);
+  --muted-foreground: oklch(0.5 0.02 257);
+  --accent: oklch(0.94 0.01 250);
+  --accent-foreground: oklch(0.21 0.02 260);
+  --destructive: oklch(0.6 0.22 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.9 0.008 255);
+  --input: oklch(0.88 0.01 255);
+  --ring: oklch(0.72 0.14 215);
+  --highlight: oklch(0.8 0.14 210);
+  --sidebar: oklch(0.97 0.004 250);
+  --pdf-bg: oklch(0.9 0.008 255);
+  --radius: 0.5rem;
+}
+
+.dark {
+  --background: oklch(0.16 0.008 260);
+  --foreground: oklch(0.94 0.005 250);
+  --card: oklch(0.2 0.01 260);
+  --card-foreground: oklch(0.94 0.005 250);
+  --popover: oklch(0.21 0.01 260);
+  --popover-foreground: oklch(0.94 0.005 250);
+  --primary: oklch(0.78 0.16 70);
+  --primary-foreground: oklch(0.2 0.03 60);
+  --secondary: oklch(0.26 0.012 260);
+  --secondary-foreground: oklch(0.94 0.005 250);
+  --muted: oklch(0.25 0.01 260);
+  --muted-foreground: oklch(0.68 0.015 257);
+  --accent: oklch(0.28 0.014 260);
+  --accent-foreground: oklch(0.96 0.005 250);
+  --destructive: oklch(0.6 0.2 25);
+  --destructive-foreground: oklch(0.98 0 0);
+  --border: oklch(0.3 0.012 260);
+  --input: oklch(0.33 0.012 260);
+  --ring: oklch(0.75 0.14 215);
+  --highlight: oklch(0.82 0.14 210);
+  --sidebar: oklch(0.18 0.009 260);
+  --pdf-bg: oklch(0.13 0.006 260);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-highlight: var(--highlight);
+  --color-sidebar: var(--sidebar);
+  --color-pdf-bg: var(--pdf-bg);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --font-sans: 'Inter', 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Code', Consolas, ui-monospace, monospace;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: 'tnum' 1, 'cv11' 1;
+  }
+  ::selection {
+    background: color-mix(in oklch, var(--highlight) 35%, transparent);
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklch, var(--muted-foreground) 40%, transparent) transparent;
+  }
+}
+
+/* ---------- PDF highlight overlays ---------- */
+@keyframes atc-glow {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 2px rgb(34 211 238 / 0.95),
+      0 0 10px 3px rgb(34 211 238 / 0.55),
+      inset 0 0 12px rgb(34 211 238 / 0.25);
+    background: rgb(34 211 238 / 0.14);
+  }
+  50% {
+    box-shadow:
+      0 0 0 3px rgb(56 189 248 / 1),
+      0 0 22px 8px rgb(34 211 238 / 0.65),
+      inset 0 0 18px rgb(34 211 238 / 0.35);
+    background: rgb(34 211 238 / 0.24);
+  }
+}
+@keyframes atc-pop {
+  from {
+    transform: scale(1.06);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.atc-hl {
+  position: absolute;
+  border-radius: 3px;
+  pointer-events: auto;
+  cursor: pointer;
+  animation:
+    atc-pop 0.25s ease-out,
+    atc-glow 1.6s ease-in-out infinite;
+  mix-blend-mode: normal;
+  z-index: 3;
+}
+.atc-record {
+  position: absolute;
+  border-radius: 4px;
+  pointer-events: none;
+  outline: 2px dashed rgb(245 158 11 / 0.75);
+  outline-offset: 2px;
+  background: rgb(245 158 11 / 0.05);
+  z-index: 2;
+}
+.atc-region {
+  position: absolute;
+  border-radius: 2px;
+  pointer-events: auto;
+  cursor: pointer;
+  z-index: 1;
+  transition:
+    background 0.12s,
+    outline-color 0.12s;
+  outline: 1px solid transparent;
+}
+.atc-region:hover {
+  background: rgb(34 211 238 / 0.1);
+  outline-color: rgb(34 211 238 / 0.6);
+}
+.atc-search-hit {
+  background: rgb(250 204 21 / 0.55);
+  color: transparent;
+  border-radius: 2px;
+}
+.atc-search-hit.current {
+  background: rgb(249 115 22 / 0.7);
+}
+
+/* flash a field section in the technical sheet */
+@keyframes atc-field-flash {
+  0% {
+    box-shadow: 0 0 0 2px rgb(34 211 238 / 0.9);
+    background: rgb(34 211 238 / 0.12);
+  }
+  100% {
+    box-shadow: 0 0 0 1px transparent;
+    background: transparent;
+  }
+}
+.atc-field-flash {
+  animation: atc-field-flash 1.4s ease-out;
+}
+
+.react-pdf__Page {
+  background: white;
+}
+.react-pdf__Page__canvas {
+  display: block;
+  user-select: none;
+}
