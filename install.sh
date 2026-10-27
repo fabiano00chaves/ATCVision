@@ -125,49 +125,116 @@ echo -e "${BLUE}[INFO] IP de rede detectado:${NC} ${BOLD}${DETECTED_IP}${NC}"
 DEFAULT_REPO_URL="https://github.com/fabiano00chaves/ATCVision.git"
 INSTALL_DIR="/opt/atc-vision"
 
+# Se o instalador estiver sendo executado dentro do diretório do projeto, adota como padrão
+if [[ -f "./docker-compose.yml" ]]; then
+  INSTALL_DIR="$(pwd)"
+fi
+
 prompt_input "Diretório de instalação [Padrão: ${INSTALL_DIR}]: " INPUT_DIR false
 INSTALL_DIR="${INPUT_DIR:-$INSTALL_DIR}"
 
-prompt_input "Porta HTTP para exposição no Host [Padrão: 8085]: " INPUT_PORT false
-HOST_PORT="${INPUT_PORT:-8085}"
+# Detecção inteligente de instalação preexistente
+IS_EXISTING_INSTALL=false
+INSTALL_ACTION="1"
+EXISTING_PORT="8085"
+EXISTING_EMAIL="admin@vision.fk.adm.br"
+EXISTING_PASS="Admin@Vision2026"
+EXISTING_PG_PASS=""
+EXISTING_JWT=""
 
-prompt_input "E-mail corporativo do gestor [Padrão: admin@vision.fk.adm.br]: " INPUT_EMAIL false
-ADMIN_EMAIL="${INPUT_EMAIL:-admin@vision.fk.adm.br}"
+if [[ -f "${INSTALL_DIR}/.env" && -f "${INSTALL_DIR}/docker-compose.yml" ]]; then
+  IS_EXISTING_INSTALL=true
+  EXISTING_PORT=$(grep -E '^HOST_PORT=' "${INSTALL_DIR}/.env" | cut -d'=' -f2- | tr -d '\r\n' || echo "8085")
+  EXISTING_EMAIL=$(grep -E '^ADMIN_INITIAL_EMAIL=' "${INSTALL_DIR}/.env" | cut -d'=' -f2- | tr -d '\r\n' || echo "admin@vision.fk.adm.br")
+  EXISTING_PASS=$(grep -E '^ADMIN_INITIAL_PASSWORD=' "${INSTALL_DIR}/.env" | cut -d'=' -f2- | tr -d '\r\n' || echo "Admin@Vision2026")
+  EXISTING_PG_PASS=$(grep -E '^POSTGRES_PASSWORD=' "${INSTALL_DIR}/.env" | cut -d'=' -f2- | tr -d '\r\n' || echo "")
+  EXISTING_JWT=$(grep -E '^JWT_SECRET_KEY=' "${INSTALL_DIR}/.env" | cut -d'=' -f2- | tr -d '\r\n' || echo "")
 
-# Como o Cloudflare Access protege a URL via e-mail, a senha interna é apenas contingência técnica
-DEFAULT_ADMIN_PASS="Admin@Vision2026"
-prompt_input "Senha técnica interna [Pressione ENTER para usar padrão]: " INPUT_PASS true
-ADMIN_PASS="${INPUT_PASS:-$DEFAULT_ADMIN_PASS}"
+  echo ""
+  echo -e "${GREEN}==============================================================================${NC}"
+  echo -e "${BOLD}${GREEN}✔ INSTALAÇÃO PREEXISTENTE DO ATC VISION DETECTADA EM: ${INSTALL_DIR}${NC}"
+  echo -e "${GREEN}==============================================================================${NC}"
+  echo -e "Configurações atuais encontradas:"
+  echo -e "  • Porta do Host:     ${CYAN}${EXISTING_PORT:-8085}${NC}"
+  echo -e "  • E-mail Gestor:     ${CYAN}${EXISTING_EMAIL:-admin@vision.fk.adm.br}${NC}"
+  echo -e "  • Banco de Dados:    ${GREEN}Volume Docker 'atc_vision_pgdata' preservado${NC}"
+  echo -e "  • Arquivos e PDFs:   ${GREEN}Volume Docker 'atc_vision_storage' preservado${NC}"
+  echo ""
+  echo -e "${BOLD}Como você deseja prosseguir?${NC}"
+  echo "1) Atualizar aplicação e migrações mantendo todos os dados e credenciais (Recomendado)"
+  echo "2) Reconfigurar parâmetros (Porta, E-mail, SSL) mantendo o banco de dados"
+  echo "3) Reinstalação limpa do zero (ATENÇÃO: apaga banco de dados e arquivos existentes)"
+  prompt_input "Opção [1-3, Padrão 1]: " INSTALL_ACTION false
+  INSTALL_ACTION="${INSTALL_ACTION:-1}"
+fi
 
-echo ""
-echo -e "${CYAN}--- Tipo de Roteamento Externo e SSL ---${NC}"
-echo "1) Cloudflare Tunnel / Edge (SSL gerenciado 100% na Cloudflare - NPM com SSL em 'None') [Padrão]"
-echo "2) Nginx Proxy Manager com Let's Encrypt / Certificado SSL Próprio no NPM"
-echo "3) Apenas Acesso Direto / Rede Local (sem proxy reverso)"
-prompt_input "Escolha o cenário de SSL [1-3, Padrão 1]: " SSL_MODE false
-SSL_MODE="${SSL_MODE:-1}"
+if [[ "${INSTALL_ACTION}" == "3" ]]; then
+  echo ""
+  echo -e "${RED}[ATENÇÃO CRÍTICA] Você selecionou reinstalação limpa do zero!${NC}"
+  prompt_input "Para confirmar a destruição dos dados antigos, digite SIM: " CONFIRM_WIPE false
+  if [[ "${CONFIRM_WIPE}" == "SIM" ]]; then
+    echo -e "${YELLOW}[INFO] Removendo contêineres e volumes antigos...${NC}"
+    docker compose -f "${INSTALL_DIR}/docker-compose.yml" down -v --remove-orphans 2>/dev/null || true
+    rm -f "${INSTALL_DIR}/.env" 2>/dev/null || true
+    IS_EXISTING_INSTALL=false
+    EXISTING_PG_PASS=""
+    EXISTING_JWT=""
+    echo -e "${GREEN}[OK] Volumes anteriores limpos com sucesso.${NC}"
+  else
+    echo -e "${BLUE}[INFO] Cancelando reset. Continuando no modo de atualização segura (Opção 1)...${NC}"
+    INSTALL_ACTION="1"
+  fi
+fi
 
-echo ""
-echo -e "${CYAN}--- Origem dos Arquivos da Aplicação ---${NC}"
-echo "1) O código já está no diretório atual ($(pwd))"
-echo "2) Clonar do repositório GitHub público (Padrão: ${DEFAULT_REPO_URL})"
-echo "3) Clonar do repositório GitHub privado (com Token PAT)"
-prompt_input "Escolha a origem [1-3, Padrão 2]: " GIT_MODE false
-GIT_MODE="${GIT_MODE:-2}"
+if [[ "${IS_EXISTING_INSTALL}" == "true" && "${INSTALL_ACTION}" == "1" ]]; then
+  echo -e "${BLUE}[INFO] Modo atualização ativa: preservando configurações e credenciais existentes.${NC}"
+  HOST_PORT="${EXISTING_PORT:-8085}"
+  ADMIN_EMAIL="${EXISTING_EMAIL:-admin@vision.fk.adm.br}"
+  ADMIN_PASS="${EXISTING_PASS:-Admin@Vision2026}"
+  SSL_MODE="1"
+  GIT_MODE="2"
+  REPO_URL="${DEFAULT_REPO_URL}"
+else
+  prompt_input "Porta HTTP para exposição no Host [Padrão: ${EXISTING_PORT:-8085}]: " INPUT_PORT false
+  HOST_PORT="${INPUT_PORT:-${EXISTING_PORT:-8085}}"
 
-REPO_URL="${DEFAULT_REPO_URL}"
-GIT_PAT=""
+  prompt_input "E-mail corporativo do gestor [Padrão: ${EXISTING_EMAIL:-admin@vision.fk.adm.br}]: " INPUT_EMAIL false
+  ADMIN_EMAIL="${INPUT_EMAIL:-${EXISTING_EMAIL:-admin@vision.fk.adm.br}}"
 
-if [[ "${GIT_MODE}" == "2" ]]; then
-  prompt_input "URL do repositório [Padrão: ${DEFAULT_REPO_URL}]: " INPUT_REPO false
-  REPO_URL="${INPUT_REPO:-$DEFAULT_REPO_URL}"
-elif [[ "${GIT_MODE}" == "3" ]]; then
-  prompt_input "URL do repositório (ex: github.com/fabiano00chaves/ATCVision.git): " RAW_REPO_URL false
-  RAW_REPO_URL="${RAW_REPO_URL:-github.com/fabiano00chaves/ATCVision.git}"
-  CLEAN_REPO="${RAW_REPO_URL#https://}"
-  CLEAN_REPO="${CLEAN_REPO#http://}"
-  prompt_input "Personal Access Token (PAT) do GitHub [oculto]: " GIT_PAT true
-  REPO_URL="https://${GIT_PAT}@${CLEAN_REPO}"
+  DEFAULT_ADMIN_PASS="${EXISTING_PASS:-Admin@Vision2026}"
+  prompt_input "Senha técnica interna [Pressione ENTER para manter/usar padrão]: " INPUT_PASS true
+  ADMIN_PASS="${INPUT_PASS:-$DEFAULT_ADMIN_PASS}"
+
+  echo ""
+  echo -e "${CYAN}--- Tipo de Roteamento Externo e SSL ---${NC}"
+  echo "1) Cloudflare Tunnel / Edge (SSL gerenciado 100% na Cloudflare - NPM com SSL em 'None') [Padrão]"
+  echo "2) Nginx Proxy Manager com Let's Encrypt / Certificado SSL Próprio no NPM"
+  echo "3) Apenas Acesso Direto / Rede Local (sem proxy reverso)"
+  prompt_input "Escolha o cenário de SSL [1-3, Padrão 1]: " SSL_MODE false
+  SSL_MODE="${SSL_MODE:-1}"
+
+  echo ""
+  echo -e "${CYAN}--- Origem dos Arquivos da Aplicação ---${NC}"
+  echo "1) O código já está no diretório atual ($(pwd))"
+  echo "2) Clonar do repositório GitHub público (Padrão: ${DEFAULT_REPO_URL})"
+  echo "3) Clonar do repositório GitHub privado (com Token PAT)"
+  prompt_input "Escolha a origem [1-3, Padrão 2]: " GIT_MODE false
+  GIT_MODE="${GIT_MODE:-2}"
+
+  REPO_URL="${DEFAULT_REPO_URL}"
+  GIT_PAT=""
+
+  if [[ "${GIT_MODE}" == "2" ]]; then
+    prompt_input "URL do repositório [Padrão: ${DEFAULT_REPO_URL}]: " INPUT_REPO false
+    REPO_URL="${INPUT_REPO:-$DEFAULT_REPO_URL}"
+  elif [[ "${GIT_MODE}" == "3" ]]; then
+    prompt_input "URL do repositório (ex: github.com/fabiano00chaves/ATCVision.git): " RAW_REPO_URL false
+    RAW_REPO_URL="${RAW_REPO_URL:-github.com/fabiano00chaves/ATCVision.git}"
+    CLEAN_REPO="${RAW_REPO_URL#https://}"
+    CLEAN_REPO="${CLEAN_REPO#http://}"
+    prompt_input "Personal Access Token (PAT) do GitHub [oculto]: " GIT_PAT true
+    REPO_URL="https://${GIT_PAT}@${CLEAN_REPO}"
+  fi
 fi
 
 # ------------------------------------------------------------------------------
@@ -283,21 +350,22 @@ echo -e "${CYAN}----------------------------------------------------------------
 
 mkdir -p "${INSTALL_DIR}"
 
-if [[ "${GIT_MODE}" == "1" ]]; then
+if [[ -d "${INSTALL_DIR}/.git" ]]; then
+  echo -e "${BLUE}[INFO] Repositório Git existente detectado em ${INSTALL_DIR}. Atualizando código...${NC}"
+  cd "${INSTALL_DIR}"
+  git stash >/dev/null 2>&1 || true
+  git fetch origin main >/dev/null 2>&1 || true
+  git checkout -f main >/dev/null 2>&1 || true
+  git reset --hard origin/main >/dev/null 2>&1 || git pull origin main >/dev/null 2>&1 || true
+elif [[ "${GIT_MODE}" == "1" ]]; then
   CURRENT_DIR="$(pwd)"
   if [[ "${CURRENT_DIR}" != "${INSTALL_DIR}" ]]; then
     echo -e "${BLUE}[INFO] Copiando arquivos do diretório atual para ${INSTALL_DIR}...${NC}"
     cp -r "${CURRENT_DIR}/." "${INSTALL_DIR}/"
   fi
 elif [[ "${GIT_MODE}" == "2" || "${GIT_MODE}" == "3" ]]; then
-  if [[ -d "${INSTALL_DIR}/.git" ]]; then
-    echo -e "${BLUE}[INFO] Repositório existente detectado em ${INSTALL_DIR}. Atualizando (git pull)...${NC}"
-    cd "${INSTALL_DIR}"
-    git pull
-  else
-    echo -e "${BLUE}[INFO] Clonando repositório para ${INSTALL_DIR}...${NC}"
-    git clone "${REPO_URL}" "${INSTALL_DIR}"
-  fi
+  echo -e "${BLUE}[INFO] Clonando repositório para ${INSTALL_DIR}...${NC}"
+  git clone "${REPO_URL}" "${INSTALL_DIR}"
 fi
 
 cd "${INSTALL_DIR}"
@@ -307,20 +375,28 @@ cd "${INSTALL_DIR}"
 # ------------------------------------------------------------------------------
 echo ""
 echo -e "${CYAN}------------------------------------------------------------------------------${NC}"
-echo -e "${BOLD}[4/7] Gerando arquivo .env e chaves criptográficas de alta entropia...${NC}"
+echo -e "${BOLD}[4/7] Configurando arquivo .env e chaves criptográficas...${NC}"
 echo -e "${CYAN}------------------------------------------------------------------------------${NC}"
 
 JWT_SECRET=$(openssl rand -hex 32)
 POSTGRES_PASS=$(openssl rand -base64 24 | tr -dc 'a-zA-Z0-9' | head -c 20)
 
-# Se já existir um arquivo .env, PRESERVAR a senha do PostgreSQL e chave JWT já em uso
-if [[ -f "${INSTALL_DIR}/.env" ]]; then
+# Preserva senhas e chaves caso existam previamente
+if [[ -n "${EXISTING_PG_PASS:-}" ]]; then
+  POSTGRES_PASS="${EXISTING_PG_PASS}"
+  echo -e "${GREEN}[OK] Preservando senha existente do PostgreSQL para manter compatibilidade com os dados.${NC}"
+elif [[ -f "${INSTALL_DIR}/.env" ]]; then
   EXISTING_PG_PASS=$(grep -E '^POSTGRES_PASSWORD=' "${INSTALL_DIR}/.env" | cut -d'=' -f2- | tr -d '\r\n' || true)
-  EXISTING_JWT=$(grep -E '^JWT_SECRET_KEY=' "${INSTALL_DIR}/.env" | cut -d'=' -f2- | tr -d '\r\n' || true)
   if [[ -n "${EXISTING_PG_PASS}" ]]; then
     POSTGRES_PASS="${EXISTING_PG_PASS}"
-    echo -e "${BLUE}[INFO] Preservando senha existente do PostgreSQL para manter compatibilidade com o volume de dados.${NC}"
+    echo -e "${GREEN}[OK] Preservando senha existente do PostgreSQL para manter compatibilidade com os dados.${NC}"
   fi
+fi
+
+if [[ -n "${EXISTING_JWT:-}" ]]; then
+  JWT_SECRET="${EXISTING_JWT}"
+elif [[ -f "${INSTALL_DIR}/.env" ]]; then
+  EXISTING_JWT=$(grep -E '^JWT_SECRET_KEY=' "${INSTALL_DIR}/.env" | cut -d'=' -f2- | tr -d '\r\n' || true)
   if [[ -n "${EXISTING_JWT}" ]]; then
     JWT_SECRET="${EXISTING_JWT}"
   fi
@@ -369,18 +445,20 @@ echo -e "${CYAN}----------------------------------------------------------------
 echo -e "${BOLD}[5/7] Compilando imagens Docker e inicializando contêineres...${NC}"
 echo -e "${CYAN}------------------------------------------------------------------------------${NC}"
 
-# Pre-provisionar volumes do Docker com permissões amplas
-docker volume create atc_vision_storage >/dev/null 2>&1 || true
-docker volume create atc_vision_pgdata >/dev/null 2>&1 || true
+# Ajuste de permissões em volumes preexistentes
 mkdir -p /var/lib/docker/volumes/atc_vision_storage/_data/watch \
          /var/lib/docker/volumes/atc_vision_storage/_data/pdfs \
          /var/lib/docker/volumes/atc_vision_storage/_data/reports \
          /var/lib/docker/volumes/atc_vision_storage/_data/uploads 2>/dev/null || true
 chmod -R 777 /var/lib/docker/volumes/atc_vision_storage/_data 2>/dev/null || true
 
+echo -e "${BLUE}[INFO] Parando contêineres anteriores para reconstrução limpa...${NC}"
 docker compose down --remove-orphans 2>/dev/null || true
+
+echo -e "${BLUE}[INFO] Compilando imagens com a versão mais recente...${NC}"
 docker compose build
 
+echo -e "${BLUE}[INFO] Inicializando contêineres em segundo plano...${NC}"
 if ! docker compose up -d; then
   echo -e "${RED}[ERRO CRÍTICO] Falha ao inicializar contêineres Docker.${NC}"
   echo -e "${YELLOW}Exibindo logs do backend para diagnóstico:${NC}"
@@ -406,16 +484,16 @@ for i in {1..40}; do
   sleep 1
 done
 
-# Sincroniza a senha do usuário com a definida no .env (caso o volume pgdata já existisse com senha anterior)
-echo -ne "${BLUE}[INFO] Sincronizando credenciais do PostgreSQL com o ambiente local...${NC}"
+# Sincroniza a senha do PostgreSQL (essencial caso o volume tenha sido criado previamente com outra senha)
+echo -ne "${BLUE}[INFO] Sincronizando credenciais do banco com o ambiente...${NC}"
 docker compose exec -T db psql -U atc_user -d atc_vision -c "ALTER USER atc_user WITH PASSWORD '${POSTGRES_PASS}';" > /dev/null 2>&1 || \
-docker compose exec -T -u postgres db psql -U postgres -d postgres -c "ALTER USER atc_user WITH PASSWORD '${POSTGRES_PASS}';" > /dev/null 2>&1 || true
+docker compose exec -T -u postgres db psql -U postgres -d atc_vision -c "ALTER USER atc_user WITH PASSWORD '${POSTGRES_PASS}';" > /dev/null 2>&1 || true
 echo -e " ${GREEN}[Sincronizado!]${NC}"
 
 # Reinicia o backend para limpar o pool de conexões com a nova credencial autenticada
 echo -ne "${BLUE}[INFO] Recarregando backend para aplicar credenciais...${NC}"
 docker compose restart backend > /dev/null 2>&1
-for i in {1..30}; do
+for i in {1..35}; do
   if docker compose exec -T backend python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health')" > /dev/null 2>&1; then
     echo -e " ${GREEN}[Backend Conectado!]${NC}"
     break
@@ -424,7 +502,7 @@ for i in {1..30}; do
   sleep 1
 done
 
-echo -e "${BLUE}[INFO] Executando migrações do schema de dados (Alembic)...${NC}"
+echo -e "${BLUE}[INFO] Sincronizando schema do banco de dados (Alembic)...${NC}"
 ALEMBIC_OUTPUT=$(docker compose exec -T backend alembic upgrade head 2>&1 || true)
 if echo "$ALEMBIC_OUTPUT" | grep -qi "already exists"; then
   echo -e "${YELLOW}[INFO] Tabelas estruturadas pelo backend. Sincronizando versão do Alembic (stamp head)...${NC}"
@@ -436,6 +514,16 @@ elif echo "$ALEMBIC_OUTPUT" | grep -qi "error"; then
   echo -e "${GREEN}[OK] Versionamento do Alembic registrado com sucesso!${NC}"
 else
   echo -e "${GREEN}[OK] Migrações concluídas com sucesso!${NC}"
+fi
+
+# Teste de conectividade HTTP final
+echo -ne "${BLUE}[INFO] Testando resposta da aplicação na porta local ${HOST_PORT}...${NC}"
+sleep 2
+HTTP_TEST=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${HOST_PORT}" 2>/dev/null || echo "000")
+if [[ "$HTTP_TEST" == "200" || "$HTTP_TEST" == "304" ]]; then
+  echo -e " ${GREEN}[HTTP ${HTTP_TEST} OK - Servidor Web Operacional!]${NC}"
+else
+  echo -e " ${YELLOW}[Aviso: HTTP ${HTTP_TEST} na porta local ${HOST_PORT}]${NC}"
 fi
 
 # ------------------------------------------------------------------------------
