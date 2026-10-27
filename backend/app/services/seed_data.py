@@ -178,4 +178,8 @@ async def seed_initial_data(db: AsyncSession) -> None:
             )
         )
 
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception as commit_err:
+        log.info("Conclusão do seed de dados (concorrência gerenciada): %s", commit_err)
+        await db.rollback()

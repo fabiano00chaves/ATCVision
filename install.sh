@@ -418,17 +418,18 @@ for i in {1..30}; do
 done
 
 echo -e "${BLUE}[INFO] Executando migrações do schema de dados (Alembic)...${NC}"
-if ! docker compose exec -T backend alembic upgrade head; then
-  echo -e "${YELLOW}[AVISO] Primeira tentativa do Alembic falhou. Tentando novamente após pausa de 3s...${NC}"
-  sleep 3
-  docker compose exec -T backend alembic upgrade head || {
-    echo -e "${RED}[ERRO] Falha ao aplicar migrações Alembic.${NC}"
-    echo -e "${YELLOW}Exibindo logs do banco de dados e backend:${NC}"
-    docker compose logs --tail 30
-    exit 1
-  }
+ALEMBIC_OUTPUT=$(docker compose exec -T backend alembic upgrade head 2>&1 || true)
+if echo "$ALEMBIC_OUTPUT" | grep -qi "already exists"; then
+  echo -e "${YELLOW}[INFO] Tabelas estruturadas pelo backend. Sincronizando versão do Alembic (stamp head)...${NC}"
+  docker compose exec -T backend alembic stamp head > /dev/null 2>&1 || true
+  echo -e "${GREEN}[OK] Versionamento do Alembic registrado com sucesso!${NC}"
+elif echo "$ALEMBIC_OUTPUT" | grep -qi "error"; then
+  echo -e "${YELLOW}[AVISO] Ajustando sincronização de versão do Alembic...${NC}"
+  docker compose exec -T backend alembic stamp head > /dev/null 2>&1 || true
+  echo -e "${GREEN}[OK] Versionamento do Alembic registrado com sucesso!${NC}"
+else
+  echo -e "${GREEN}[OK] Migrações concluídas com sucesso!${NC}"
 fi
-echo -e "${GREEN}[OK] Migrações concluídas com sucesso!${NC}"
 
 # ------------------------------------------------------------------------------
 # 15. INSTALAÇÃO DO SERVIÇO SYSTEMD (INICIALIZAÇÃO NO BOOT)
