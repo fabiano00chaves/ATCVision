@@ -67,7 +67,48 @@ wait_for_apt_lock() {
 }
 
 # ------------------------------------------------------------------------------
-# 3. DETECÇÃO AUTOMÁTICA DE IP DO CONTAINER / HOST
+# 3. GARANTIR DEPENDÊNCIAS PRELIMINARES DE INICIALIZAÇÃO (GIT & CURL)
+# ------------------------------------------------------------------------------
+if ! command -v git &>/dev/null || ! command -v curl &>/dev/null || ! command -v ca-certificates &>/dev/null; then
+  echo -e "${BLUE}[INFO] Instalando dependências básicas preliminares (git, curl, ca-certificates)...${NC}"
+  wait_for_apt_lock
+  apt-get update -qq
+  apt-get install -y -qq git curl ca-certificates
+  echo -e "  ${GREEN}✔ Git e utilitários preliminares instalados.${NC}"
+fi
+
+# ------------------------------------------------------------------------------
+# 4. FUNÇÃO AUXILIAR DE PROMPT INTERATIVO (COMPATÍVEL COM PIPE CURL | BASH)
+# ------------------------------------------------------------------------------
+prompt_input() {
+  local prompt_text="$1"
+  local target_var="$2"
+  local is_hidden="${3:-false}"
+  local val=""
+
+  if [[ "$is_hidden" == "true" ]]; then
+    if [[ -t 0 ]]; then
+      read -rs -p "$prompt_text" val
+    elif [[ -e /dev/tty ]]; then
+      read -rs -p "$prompt_text" val </dev/tty
+    else
+      read -rs -p "$prompt_text" val
+    fi
+    echo ""
+  else
+    if [[ -t 0 ]]; then
+      read -rp "$prompt_text" val
+    elif [[ -e /dev/tty ]]; then
+      read -rp "$prompt_text" val </dev/tty
+    else
+      read -rp "$prompt_text" val
+    fi
+  fi
+  printf -v "$target_var" '%s' "$val"
+}
+
+# ------------------------------------------------------------------------------
+# 5. DETECÇÃO AUTOMÁTICA DE IP DO CONTAINER / HOST
 # ------------------------------------------------------------------------------
 DETECTED_IP="127.0.0.1"
 if command -v ip &>/dev/null; then
@@ -79,24 +120,22 @@ fi
 echo -e "${BLUE}[INFO] IP de rede detectado:${NC} ${BOLD}${DETECTED_IP}${NC}"
 
 # ------------------------------------------------------------------------------
-# 4. QUESTIONÁRIO INTERATIVO DE CONFIGURAÇÃO INICIAL
+# 6. QUESTIONÁRIO INTERATIVO DE CONFIGURAÇÃO INICIAL
 # ------------------------------------------------------------------------------
 DEFAULT_REPO_URL="https://github.com/fabiano00chaves/ATCVision.git"
 INSTALL_DIR="/opt/atc-vision"
 
-read -rp "Diretório de instalação [Padrão: ${INSTALL_DIR}]: " INPUT_DIR
+prompt_input "Diretório de instalação [Padrão: ${INSTALL_DIR}]: " INPUT_DIR false
 INSTALL_DIR="${INPUT_DIR:-$INSTALL_DIR}"
 
-read -rp "Porta HTTP para exposição no Host [Padrão: 8085]: " INPUT_PORT
+prompt_input "Porta HTTP para exposição no Host [Padrão: 8085]: " INPUT_PORT false
 HOST_PORT="${INPUT_PORT:-8085}"
 
-read -rp "E-mail do administrador inicial [Padrão: admin@vision.fk.adm.br]: " INPUT_EMAIL
+prompt_input "E-mail do administrador inicial [Padrão: admin@vision.fk.adm.br]: " INPUT_EMAIL false
 ADMIN_EMAIL="${INPUT_EMAIL:-admin@vision.fk.adm.br}"
 
 while true; do
-  echo -ne "Senha do administrador inicial [mínimo 8 caracteres]: "
-  read -rs ADMIN_PASS
-  echo ""
+  prompt_input "Senha do administrador inicial [mínimo 8 caracteres]: " ADMIN_PASS true
   if [[ ${#ADMIN_PASS} -ge 8 ]]; then
     break
   else
@@ -109,28 +148,26 @@ echo -e "${CYAN}--- Origem dos Arquivos da Aplicação ---${NC}"
 echo "1) O código já está no diretório atual ($(pwd))"
 echo "2) Clonar do repositório GitHub público (Padrão: ${DEFAULT_REPO_URL})"
 echo "3) Clonar do repositório GitHub privado (com Token PAT)"
-read -rp "Escolha a origem [1-3, Padrão 2]: " GIT_MODE
+prompt_input "Escolha a origem [1-3, Padrão 2]: " GIT_MODE false
 GIT_MODE="${GIT_MODE:-2}"
 
 REPO_URL="${DEFAULT_REPO_URL}"
 GIT_PAT=""
 
 if [[ "${GIT_MODE}" == "2" ]]; then
-  read -rp "URL do repositório [Padrão: ${DEFAULT_REPO_URL}]: " INPUT_REPO
+  prompt_input "URL do repositório [Padrão: ${DEFAULT_REPO_URL}]: " INPUT_REPO false
   REPO_URL="${INPUT_REPO:-$DEFAULT_REPO_URL}"
 elif [[ "${GIT_MODE}" == "3" ]]; then
-  read -rp "URL do repositório (ex: github.com/fabiano00chaves/ATCVision.git): " RAW_REPO_URL
+  prompt_input "URL do repositório (ex: github.com/fabiano00chaves/ATCVision.git): " RAW_REPO_URL false
   RAW_REPO_URL="${RAW_REPO_URL:-github.com/fabiano00chaves/ATCVision.git}"
   CLEAN_REPO="${RAW_REPO_URL#https://}"
   CLEAN_REPO="${CLEAN_REPO#http://}"
-  echo -ne "Personal Access Token (PAT) do GitHub [oculto]: "
-  read -rs GIT_PAT
-  echo ""
+  prompt_input "Personal Access Token (PAT) do GitHub [oculto]: " GIT_PAT true
   REPO_URL="https://${GIT_PAT}@${CLEAN_REPO}"
 fi
 
 # ------------------------------------------------------------------------------
-# 5. INSTALAÇÃO DE TODAS AS DEPENDÊNCIAS DO SISTEMA LIMPO
+# 7. INSTALAÇÃO DE TODAS AS DEPENDÊNCIAS DO SISTEMA LIMPO
 # ------------------------------------------------------------------------------
 echo ""
 echo -e "${CYAN}------------------------------------------------------------------------------${NC}"
@@ -172,7 +209,7 @@ locale-gen pt_BR.UTF-8 en_US.UTF-8 >/dev/null 2>&1 || true
 update-locale LANG=pt_BR.UTF-8 LC_ALL=pt_BR.UTF-8 >/dev/null 2>&1 || true
 
 # ------------------------------------------------------------------------------
-# 6. INSTALAÇÃO DO DOCKER ENGINE E DOCKER COMPOSE PLUGIN
+# 8. INSTALAÇÃO DO DOCKER ENGINE E DOCKER COMPOSE PLUGIN
 # ------------------------------------------------------------------------------
 echo ""
 echo -e "${CYAN}------------------------------------------------------------------------------${NC}"
@@ -220,7 +257,7 @@ systemctl daemon-reload
 systemctl enable --now docker
 
 # ------------------------------------------------------------------------------
-# 7. AJUSTES DE FIREWALL (UFW) CASO ATIVO
+# 9. AJUSTES DE FIREWALL (UFW) CASO ATIVO
 # ------------------------------------------------------------------------------
 if command -v ufw &>/dev/null; then
   if ufw status | grep -q "Status: active"; then
@@ -233,7 +270,7 @@ if command -v ufw &>/dev/null; then
 fi
 
 # ------------------------------------------------------------------------------
-# 8. PREPARAÇÃO DO DIRETÓRIO DE INSTALAÇÃO E CÓDIGO FONTE
+# 10. PREPARAÇÃO DO DIRETÓRIO DE INSTALAÇÃO E CÓDIGO FONTE
 # ------------------------------------------------------------------------------
 echo ""
 echo -e "${CYAN}------------------------------------------------------------------------------${NC}"
@@ -262,7 +299,7 @@ fi
 cd "${INSTALL_DIR}"
 
 # ------------------------------------------------------------------------------
-# 9. GERAÇÃO DO ARQUIVO .env COM SEGREDOS CRIPTOGRÁFICOS
+# 11. GERAÇÃO DO ARQUIVO .env COM SEGREDOS CRIPTOGRÁFICOS
 # ------------------------------------------------------------------------------
 echo ""
 echo -e "${CYAN}------------------------------------------------------------------------------${NC}"
@@ -305,7 +342,7 @@ chmod 600 "${INSTALL_DIR}/.env"
 echo -e "${GREEN}[OK] Arquivo .env configurado com permissões restritas (600).${NC}"
 
 # ------------------------------------------------------------------------------
-# 10. BUILD E INICIALIZAÇÃO DOS CONTAINERS (DOCKER COMPOSE)
+# 12. BUILD E INICIALIZAÇÃO DOS CONTAINERS (DOCKER COMPOSE)
 # ------------------------------------------------------------------------------
 echo ""
 echo -e "${CYAN}------------------------------------------------------------------------------${NC}"
@@ -317,17 +354,16 @@ docker compose build
 docker compose up -d
 
 # ------------------------------------------------------------------------------
-# 11. PROVISIONAMENTO DE VOLUMES E PERMISSÕES DO WATCH FOLDER
+# 13. PROVISIONAMENTO DE VOLUMES E PERMISSÕES DO WATCH FOLDER
 # ------------------------------------------------------------------------------
 echo -e "${BLUE}[INFO] Configurando permissões do volume de arquivos monitorados...${NC}"
-# Aguardar o docker compose criar o volume atc_vision_storage
 sleep 3
 WATCH_VOLUME_DIR="/var/lib/docker/volumes/atc_vision_storage/_data/watch"
 mkdir -p "${WATCH_VOLUME_DIR}" 2>/dev/null || true
 chmod 777 "${WATCH_VOLUME_DIR}" 2>/dev/null || true
 
 # ------------------------------------------------------------------------------
-# 12. EXECUÇÃO DE MIGRAÇÕES DO BANCO DE DADOS
+# 14. EXECUÇÃO DE MIGRAÇÕES DO BANCO DE DADOS
 # ------------------------------------------------------------------------------
 echo ""
 echo -e "${CYAN}------------------------------------------------------------------------------${NC}"
@@ -349,7 +385,7 @@ docker compose exec -T backend alembic upgrade head
 echo -e "${GREEN}[OK] Migrações concluídas com sucesso!${NC}"
 
 # ------------------------------------------------------------------------------
-# 13. INSTALAÇÃO DO SERVIÇO SYSTEMD (INICIALIZAÇÃO NO BOOT)
+# 15. INSTALAÇÃO DO SERVIÇO SYSTEMD (INICIALIZAÇÃO NO BOOT)
 # ------------------------------------------------------------------------------
 echo ""
 echo -e "${CYAN}------------------------------------------------------------------------------${NC}"
@@ -379,7 +415,7 @@ systemctl enable atc-vision.service
 echo -e "${GREEN}[OK] Serviço systemd atc-vision habilitado para boot automático no Proxmox LXC / VPS.${NC}"
 
 # ------------------------------------------------------------------------------
-# 14. RELATÓRIO FINAL E MANUAL DO NGINX PROXY MANAGER (NPM)
+# 16. RELATÓRIO FINAL E MANUAL DO NGINX PROXY MANAGER (NPM)
 # ------------------------------------------------------------------------------
 clear
 echo -e "${GREEN}==============================================================================${NC}"

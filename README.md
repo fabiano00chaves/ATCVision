@@ -13,15 +13,23 @@
 O script instalador foi projetado para **instalações limpas e mínimas** do Ubuntu Server (24.04 ou 26.04 LTS), instalando automaticamente todas as dependências de sistema (Docker, Docker Compose, qpdf, poppler, certificados, locales, timezone e firewall) sem necessidade de preparação prévia manual.
 
 ```bash
-# 1. Clone o repositório oficial na pasta recomendada:
+# 1. Em instalação limpa, atualize os índices e instale o git:
+sudo apt update && sudo apt install -y git
+
+# 2. Clone o repositório oficial na pasta recomendada:
 sudo git clone https://github.com/fabiano00chaves/ATCVision.git /opt/atc-vision
 
-# 2. Acesse o diretório:
+# 3. Acesse o diretório:
 cd /opt/atc-vision
 
-# 3. Execute o instalador automatizado como root:
+# 4. Execute o instalador automatizado como root:
 sudo bash install.sh
 ```
+
+> **Dica (Linha Única para VPS/LXC Recém-Criada):**
+> ```bash
+> sudo apt update && sudo apt install -y git && sudo git clone https://github.com/fabiano00chaves/ATCVision.git /opt/atc-vision && cd /opt/atc-vision && sudo bash install.sh
+> ```
 
 O script interativo `install.sh` cuida de **100% da configuração a partir do zero**:
 * Trata travas de pacotes (`apt/dpkg locks`) de inicialização recente do sistema.
