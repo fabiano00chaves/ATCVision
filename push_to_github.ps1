@@ -152,6 +152,9 @@ try {
         & git push -u $pushUrl $branch
     }
     
+    # Sanitiza o .git/config para garantir que o remote gravado seja apenas 'origin'
+    & git config "branch.$branch.remote" origin
+    
     if ($LASTEXITCODE -eq 0) {
         Write-Host ""
         Write-Host "==============================================================================" -ForegroundColor Green

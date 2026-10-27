@@ -133,6 +133,9 @@ else
   git push -u "${PUSH_URL}" "${BRANCH}"
 fi
 
+# Sanitizar .git/config
+git config "branch.${BRANCH}.remote" origin
+
 # Limpar credenciais da memória
 TOKEN=""
 PUSH_URL=""
