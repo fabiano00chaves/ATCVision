@@ -1,20 +1,41 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { AlertCircle, Eye, EyeOff, Loader2, Lock, Mail, ShieldAlert } from 'lucide-react'
+import { AlertCircle, ArrowRight, Eye, EyeOff, Loader2, Lock, Mail, ShieldCheck } from 'lucide-react'
 import { toast } from 'sonner'
 
 export function Login() {
-  const { login } = useAuth()
+  const { user, login, refresh } = useAuth()
   const navigate = useNavigate()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showManual, setShowManual] = useState(false)
+
+  useEffect(() => {
+    if (user) {
+      navigate('/', { replace: true })
+    }
+  }, [user, navigate])
+
+  const handleDirectAccess = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      await refresh()
+      navigate('/', { replace: true })
+    } catch (err: any) {
+      setError('Acesso direto indisponível. Utilize as credenciais abaixo.')
+      setShowManual(true)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -46,69 +67,97 @@ export function Login() {
         </div>
 
         <Card className="shadow-md border-border/80">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-sm font-semibold">Acesso ao Sistema</CardTitle>
+          <CardHeader className="pb-3 text-center">
+            <div className="mx-auto size-8 rounded-full bg-emerald-500/10 text-emerald-500 flex items-center justify-center mb-1">
+              <ShieldCheck className="size-4" />
+            </div>
+            <CardTitle className="text-sm font-semibold">Autenticação Integrada</CardTitle>
             <CardDescription className="text-xs">
-              Entre com suas credenciais corporativas
+              Acesso protegido e autenticado via Cloudflare Zero Trust
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-3">
-              {error && (
-                <div className="p-2 rounded bg-red-50 dark:bg-red-950/50 border border-red-300 dark:border-red-900 text-red-600 dark:text-red-300 text-xs flex items-center gap-2">
-                  <AlertCircle className="size-4 shrink-0" />
-                  <span>{error}</span>
-                </div>
+          <CardContent className="space-y-3">
+            {error && (
+              <div className="p-2 rounded bg-red-50 dark:bg-red-950/50 border border-red-300 dark:border-red-900 text-red-600 dark:text-red-300 text-xs flex items-center gap-2">
+                <AlertCircle className="size-4 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            <Button
+              type="button"
+              className="w-full bg-amber-600 hover:bg-amber-700 text-white font-medium"
+              size="sm"
+              disabled={loading}
+              onClick={handleDirectAccess}
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin mr-1.5" />
+                  Conectando...
+                </>
+              ) : (
+                <>
+                  Acessar ATC Vision
+                  <ArrowRight className="size-3.5 ml-1.5" />
+                </>
               )}
+            </Button>
 
-              <div className="space-y-1">
-                <label className="text-[11px] font-medium text-muted-foreground">E-mail</label>
-                <div className="relative">
-                  <Mail className="absolute left-2.5 top-2 size-3.5 text-muted-foreground" />
-                  <Input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="admin@vision.fk.adm.br"
-                    required
-                    className="pl-8 text-xs h-8"
-                  />
+            <div className="text-center pt-2">
+              <button
+                type="button"
+                onClick={() => setShowManual(!showManual)}
+                className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2 transition-colors"
+              >
+                {showManual ? 'Ocultar login manual' : 'Entrar com senha local'}
+              </button>
+            </div>
+
+            {showManual && (
+              <form onSubmit={handleSubmit} className="space-y-3 pt-2 border-t border-border/60">
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-muted-foreground">E-mail</label>
+                  <div className="relative">
+                    <Mail className="absolute left-2.5 top-2 size-3.5 text-muted-foreground" />
+                    <Input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="admin@vision.fk.adm.br"
+                      required
+                      className="pl-8 text-xs h-8"
+                    />
+                  </div>
                 </div>
-              </div>
 
-              <div className="space-y-1">
-                <label className="text-[11px] font-medium text-muted-foreground">Senha</label>
-                <div className="relative">
-                  <Lock className="absolute left-2.5 top-2 size-3.5 text-muted-foreground" />
-                  <Input
-                    type={showPassword ? 'text' : 'password'}
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    required
-                    className="pl-8 pr-8 text-xs h-8"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-2.5 top-2 text-muted-foreground hover:text-foreground"
-                  >
-                    {showPassword ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
-                  </button>
+                <div className="space-y-1">
+                  <label className="text-[11px] font-medium text-muted-foreground">Senha</label>
+                  <div className="relative">
+                    <Lock className="absolute left-2.5 top-2 size-3.5 text-muted-foreground" />
+                    <Input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                      required
+                      className="pl-8 pr-8 text-xs h-8"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-2.5 top-2 text-muted-foreground hover:text-foreground"
+                    >
+                      {showPassword ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+                    </button>
+                  </div>
                 </div>
-              </div>
 
-              <Button type="submit" className="w-full mt-2" size="sm" disabled={loading}>
-                {loading ? (
-                  <>
-                    <Loader2 className="size-3.5 animate-spin mr-1.5" />
-                    Entrando...
-                  </>
-                ) : (
-                  'Entrar'
-                )}
-              </Button>
-            </form>
+                <Button type="submit" variant="secondary" className="w-full mt-2" size="sm" disabled={loading}>
+                  Entrar com Senha
+                </Button>
+              </form>
+            )}
           </CardContent>
         </Card>
 

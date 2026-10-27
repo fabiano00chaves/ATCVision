@@ -38,6 +38,8 @@ services:
       CORS_ORIGINS: '["https://vision.fk.adm.br", "http://localhost:8085", "http://127.0.0.1:8085"]'
       COOKIE_SECURE: "true"
       MAX_UPLOAD_SIZE_MB: "100"
+      AUTO_LOGIN_ENABLED: ${AUTO_LOGIN_ENABLED:-true}
+      CLOUDFLARE_AUTH_ENABLED: ${CLOUDFLARE_AUTH_ENABLED:-true}
     volumes:
       - atc_storage:/app/storage
     healthcheck:

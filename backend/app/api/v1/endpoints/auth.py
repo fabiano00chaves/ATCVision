@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from typing import Optional
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -60,5 +61,23 @@ async def logout(response: Response):
 
 
 @router.get("/me", response_model=UserOut)
-async def get_me(current_user: User = Depends(get_current_user)):
+async def get_me(
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    atc_session: Optional[str] = Cookie(None),
+):
+    if not atc_session and current_user and getattr(current_user, "id", None) and current_user.id != "default-admin":
+        access_token = create_access_token(
+            subject=current_user.id,
+            expires_delta=timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES),
+        )
+        response.set_cookie(
+            key=settings.COOKIE_NAME,
+            value=access_token,
+            max_age=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+            httponly=True,
+            secure=settings.COOKIE_SECURE,
+            samesite=settings.COOKIE_SAMESITE,
+            path="/",
+        )
     return UserOut.model_validate(current_user)

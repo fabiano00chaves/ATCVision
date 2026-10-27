@@ -131,17 +131,13 @@ INSTALL_DIR="${INPUT_DIR:-$INSTALL_DIR}"
 prompt_input "Porta HTTP para exposição no Host [Padrão: 8085]: " INPUT_PORT false
 HOST_PORT="${INPUT_PORT:-8085}"
 
-prompt_input "E-mail do administrador inicial [Padrão: admin@vision.fk.adm.br]: " INPUT_EMAIL false
+prompt_input "E-mail corporativo do gestor [Padrão: admin@vision.fk.adm.br]: " INPUT_EMAIL false
 ADMIN_EMAIL="${INPUT_EMAIL:-admin@vision.fk.adm.br}"
 
-while true; do
-  prompt_input "Senha do administrador inicial [mínimo 8 caracteres]: " ADMIN_PASS true
-  if [[ ${#ADMIN_PASS} -ge 8 ]]; then
-    break
-  else
-    echo -e "${YELLOW}[AVISO] A senha deve conter pelo menos 8 caracteres para conformidade de segurança.${NC}"
-  fi
-done
+# Como o Cloudflare Access protege a URL via e-mail, a senha interna é apenas contingência técnica
+DEFAULT_ADMIN_PASS="Admin@Vision2026"
+prompt_input "Senha técnica interna [Pressione ENTER para usar padrão]: " INPUT_PASS true
+ADMIN_PASS="${INPUT_PASS:-$DEFAULT_ADMIN_PASS}"
 
 echo ""
 echo -e "${CYAN}--- Origem dos Arquivos da Aplicação ---${NC}"
@@ -339,6 +335,9 @@ JWT_EXPIRE_MINUTES=1440
 ADMIN_INITIAL_EMAIL=${ADMIN_EMAIL}
 ADMIN_INITIAL_PASSWORD=${ADMIN_PASS}
 
+AUTO_LOGIN_ENABLED=true
+CLOUDFLARE_AUTH_ENABLED=true
+
 CORS_ORIGINS=["https://vision.fk.adm.br", "http://localhost:${HOST_PORT}", "http://127.0.0.1:${HOST_PORT}", "http://${DETECTED_IP}:${HOST_PORT}"]
 
 COOKIE_SECURE=true
@@ -472,8 +471,9 @@ echo ""
 echo -e "${BOLD}INFORMAÇÕES DE ACESSO LOCAL / REDE INTERNA:${NC}"
 echo -e "  • URL Direta:       ${CYAN}http://${DETECTED_IP}:${HOST_PORT}${NC}"
 echo -e "  • URL Pública:      ${CYAN}https://vision.fk.adm.br${NC}"
-echo -e "  • E-mail Admin:     ${BOLD}${ADMIN_EMAIL}${NC}"
-echo -e "  • Senha Admin:      ${YELLOW}${ADMIN_PASS}${NC}"
+echo -e "  • Autenticação:     ${GREEN}Cloudflare Zero Trust / Acesso Direto Transparente (Sem senha obrigatória)${NC}"
+echo -e "  • E-mail Gestor:    ${BOLD}${ADMIN_EMAIL}${NC}"
+echo -e "  • Senha Fallback:   ${YELLOW}${ADMIN_PASS}${NC}"
 echo ""
 echo -e "${BOLD}DIRETÓRIOS E VOLUMES DO SISTEMA:${NC}"
 echo -e "  • Raiz da Aplicação:${CYAN} ${INSTALL_DIR}${NC}"

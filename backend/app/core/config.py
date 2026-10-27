@@ -31,6 +31,13 @@ class Settings(BaseSettings):
     COOKIE_SECURE: bool = False  # Set to True behind HTTPS in production
     COOKIE_SAMESITE: str = "lax"  # lax | strict | none
 
+    # Cloudflare Zero Trust / Auto-Authentication
+    AUTO_LOGIN_ENABLED: bool = Field(
+        default=True,
+        description="Acesso transparente sem exigir tela de login prévia quando protegido por Cloudflare Access",
+    )
+    CLOUDFLARE_AUTH_ENABLED: bool = True
+
     # API Key for automation/webhooks
     MASTER_API_KEY: str = "atc-master-api-key-change-in-production"
 
