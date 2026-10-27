@@ -656,5 +656,4 @@ echo -e "  • Ver logs:          ${CYAN}cd ${INSTALL_DIR} && docker compose log
 echo -e "  • Reiniciar tudo:    ${CYAN}systemctl restart atc-vision${NC}"
 echo -e "  • Inspecionar status:${CYAN}docker compose ps${NC}"
 echo ""
-echo -e "${GREEN}Deploy concluído com sucesso em instalação limpa!${NC}"
-EOF
+echo -e "${GREEN}Deploy concluído com sucesso!${NC}"
