@@ -18,6 +18,9 @@ RUN npm run build
 # Stage 2: Serve with lightweight Nginx
 FROM nginx:1.27-alpine AS runner
 
+# Ensure Nginx serves .mjs as application/javascript in mime.types
+RUN sed -i 's/application\/javascript\s*js;/application\/javascript js mjs;/g' /etc/nginx/mime.types 2>/dev/null || true
+
 # Remove default nginx configs
 RUN rm -rf /etc/nginx/conf.d/* /usr/share/nginx/html/*
 
