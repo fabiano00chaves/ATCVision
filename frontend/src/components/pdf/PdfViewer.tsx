@@ -10,12 +10,17 @@ import {
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
+import workerCode from 'pdfjs-dist/build/pdf.worker.min.mjs?raw'
 
-// Set up pdf.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url
-).toString()
+// Instantiate worker via in-memory Blob URL (100% immune to network/MIME-type/CORS/Cloudflare errors)
+if (typeof window !== 'undefined' && !pdfjs.GlobalWorkerOptions.workerSrc) {
+  try {
+    const blob = new Blob([workerCode], { type: 'application/javascript' })
+    pdfjs.GlobalWorkerOptions.workerSrc = URL.createObjectURL(blob)
+  } catch (e) {
+    console.warn('Fallback workerSrc:', e)
+  }
+}
 
 interface PdfViewerProps {
   documentId: string
