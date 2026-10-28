@@ -238,10 +238,11 @@ async def get_document_stats(
 
         dt = d.report_period_start or d.emitted_at or d.created_at
         if dt:
-            if oldest_date is None or dt < oldest_date:
-                oldest_date = dt
-            if newest_date is None or dt > newest_date:
-                newest_date = dt
+            dt_cmp = dt.replace(tzinfo=None) if getattr(dt, "tzinfo", None) else dt
+            if oldest_date is None or dt_cmp < oldest_date:
+                oldest_date = dt_cmp
+            if newest_date is None or dt_cmp > newest_date:
+                newest_date = dt_cmp
 
     occ_cnt_res = await db.execute(select(func.count(Occurrence.id)))
     total_occs = occ_cnt_res.scalar() or 0
@@ -411,7 +412,7 @@ async def list_documents(
 
     query = (
         select(PdfDocument)
-        .order_by(desc(PdfDocument.report_period_start.nulls_last()), desc(PdfDocument.created_at))
+        .order_by(PdfDocument.report_period_start.desc().nulls_last(), PdfDocument.created_at.desc())
         .limit(limit)
         .offset(offset)
     )

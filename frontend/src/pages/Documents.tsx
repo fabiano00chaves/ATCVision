@@ -76,13 +76,19 @@ export function Documents() {
     try {
       const [res, st] = await Promise.all([
         documentsApi.list(300, 0),
-        documentsApi.stats().catch(() => null),
+        documentsApi.stats().catch((err) => {
+          console.warn('Estatísticas não disponíveis no momento:', err)
+          return null
+        }),
       ])
       setDocuments(res.items)
       setTotal(res.total)
       if (st) setStats(st)
-    } catch {
-      toast.error('Erro ao listar relatórios do sistema')
+    } catch (err: any) {
+      console.error('Falha ao listar documentos:', err)
+      toast.error('Erro ao listar relatórios do sistema', {
+        description: err?.message || 'Verifique se os serviços do backend estão ativos.',
+      })
     } finally {
       setLoading(false)
     }
