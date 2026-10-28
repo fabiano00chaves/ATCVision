@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import {
   ChevronLeft,
   ChevronRight,
+  FileText,
   Loader2,
   RotateCw,
   ZoomIn,
@@ -186,9 +187,18 @@ export function PdfViewer({
             </div>
           }
           error={
-            <div className="p-8 text-center text-red-500 text-xs">
-              <p className="font-semibold mb-1">Não foi possível carregar o arquivo PDF.</p>
-              <p className="text-muted-foreground text-[11px]">Verifique a conexão ou tente recarregar.</p>
+            <div className="p-8 text-center text-xs flex flex-col items-center justify-center max-w-sm mx-auto">
+              <div className="size-10 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-600 mb-2.5">
+                <FileText className="size-5" />
+              </div>
+              <p className="font-semibold text-foreground mb-1">Arquivo PDF Físico Não Disponível</p>
+              <p className="text-muted-foreground text-[11px] leading-relaxed mb-3">
+                O arquivo binário pode ter sido liberado do disco durante o saneamento para economia de armazenamento.
+                Todos os dados estruturados e notas SAP continuam íntegros no sistema.
+              </p>
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-muted text-[10px] text-muted-foreground font-mono">
+                <span>Visualização técnica estruturada ativa</span>
+              </div>
             </div>
           }
         >

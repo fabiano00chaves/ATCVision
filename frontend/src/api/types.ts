@@ -45,8 +45,52 @@ export interface PdfDocument {
   ingestion_source: IngestionSource
   created_at: string
   occurrence_count: number
+  file_size_bytes: number
+  has_binary: boolean
   parse_warnings: string[]
   page_sizes: PageSize[]
+}
+
+export interface DocumentStats {
+  total_documents: number
+  total_storage_bytes: number
+  total_purged_documents: number
+  total_occurrences: number
+  oldest_report_date: string | null
+  newest_report_date: string | null
+}
+
+export interface DocumentCleanupRequest {
+  document_ids?: string[]
+  older_than_days?: number
+  before_date?: string
+  action: 'purge_binaries' | 'delete_complete'
+  delete_occurrences?: boolean
+}
+
+export interface DocumentPreviewItem {
+  id: string
+  filename: string
+  file_size_bytes: number
+  occurrence_count: number
+  has_binary: boolean
+  report_period_start: string | null
+  emitted_at: string | null
+}
+
+export interface DocumentCleanupPreview {
+  documents_count: number
+  total_bytes_to_free: number
+  occurrences_affected: number
+  documents: DocumentPreviewItem[]
+}
+
+export interface DocumentCleanupResult {
+  documents_affected: number
+  bytes_freed: number
+  occurrences_deleted: number
+  occurrences_preserved: number
+  message: string
 }
 
 export interface UploadResultItem {

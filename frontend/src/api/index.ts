@@ -7,6 +7,10 @@ import type {
   Comment,
   DailyMode,
   DailyWindow,
+  DocumentCleanupPreview,
+  DocumentCleanupRequest,
+  DocumentCleanupResult,
+  DocumentStats,
   Facets,
   FailureModes,
   GenerateRequest,
@@ -44,10 +48,19 @@ export const authApi = {
 
 // ---------------- Documents ----------------
 export const documentsApi = {
-  list: (limit = 50, offset = 0) => request<Paginated<PdfDocument>>('/documents', { query: { limit, offset } }),
+  list: (limit = 200, offset = 0) => request<Paginated<PdfDocument>>('/documents', { query: { limit, offset } }),
   get: (id: string) => request<PdfDocument>(`/documents/${id}`),
   fileUrl: (id: string) => `/api/v1/documents/${id}/file`,
-  remove: (id: string) => request<unknown>(`/documents/${id}`, { method: 'DELETE' }),
+  stats: () => request<DocumentStats>('/documents/stats'),
+  cleanupPreview: (req: DocumentCleanupRequest) =>
+    request<DocumentCleanupPreview>('/documents/cleanup/preview', { method: 'POST', json: req }),
+  cleanup: (req: DocumentCleanupRequest) =>
+    request<DocumentCleanupResult>('/documents/cleanup', { method: 'POST', json: req }),
+  remove: (id: string, purge_only = false, delete_occurrences = true) =>
+    request<{ ok: boolean; message: string; bytes_freed: number }>(`/documents/${id}`, {
+      method: 'DELETE',
+      query: { purge_only, delete_occurrences },
+    }),
   upload: (files: File[], onProgress?: (f: number) => void) => {
     const fd = new FormData()
     for (const f of files) fd.append('files', f, f.name)
