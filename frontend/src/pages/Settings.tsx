@@ -24,6 +24,7 @@ import {
   Copy,
   FolderSync,
   KeyRound,
+  Pencil,
   Plus,
   Save,
   Send,
@@ -33,6 +34,7 @@ import {
   Webhook as WebhookIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { PresetEditorModal } from '@/components/presets/PresetEditorModal'
 
 export function Settings() {
   const [settingsData, setSettingsData] = useState<SystemSettingsType | null>(null)
@@ -40,6 +42,10 @@ export function Settings() {
   const [tokens, setTokens] = useState<ApiTokenItem[]>([])
   const [webhooks, setWebhooks] = useState<Webhook[]>([])
   const [loading, setLoading] = useState(true)
+
+  // Preset Creation/Editing modal
+  const [presetModalOpen, setPresetModalOpen] = useState(false)
+  const [presetToEdit, setPresetToEdit] = useState<Preset | null>(null)
 
   // API Token Generation modal
   const [tokenModalOpen, setTokenModalOpen] = useState(false)
@@ -288,43 +294,91 @@ export function Settings() {
                 Configuração dos botões de 1 clique exibidos na rotina matinal e no explorador
               </CardDescription>
             </div>
+
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() => {
+                setPresetToEdit(null)
+                setPresetModalOpen(true)
+              }}
+              className="gap-1 border-primary/30 hover:bg-primary/10 text-primary font-medium"
+            >
+              <Plus className="size-3" /> Novo Filtro da Área
+            </Button>
           </div>
 
           <div className="space-y-2">
             {presets.map((p) => (
-              <div key={p.id} className="p-2.5 rounded border bg-card flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2.5">
+              <div key={p.id} className="p-2.5 rounded border bg-card flex items-center justify-between text-xs hover:border-primary/30 transition-colors">
+                <div className="flex items-center gap-2.5 overflow-hidden">
                   <div
                     className="size-3 rounded-full shrink-0"
                     style={{ backgroundColor: p.color || '#3b82f6' }}
                   />
-                  <div>
-                    <p className="font-semibold">{p.name}</p>
-                    <p className="text-[10px] text-muted-foreground font-mono">
-                      {p.filter_payload.functional_locations_prefixes?.length
-                        ? `PF: ${p.filter_payload.functional_locations_prefixes.join(', ')} `
-                        : ''}
-                      {p.filter_payload.only_pane ? '• Apenas Panes ' : ''}
-                      {p.filter_payload.only_jump ? '• Apenas Jumps ' : ''}
-                      {p.filter_payload.only_relevant ? '• Apenas Relevantes ' : ''}
+                  <div className="overflow-hidden">
+                    <p className="font-semibold text-foreground flex items-center gap-2">
+                      <span>{p.name}</span>
                     </p>
+                    <div className="flex flex-wrap items-center gap-1.5 mt-0.5 text-[10px] text-muted-foreground">
+                      {p.filter_payload.functional_locations_prefixes && p.filter_payload.functional_locations_prefixes.length > 0 && (
+                        <span className="font-mono text-[10px] text-primary font-bold bg-primary/10 border border-primary/20 px-1.5 py-0.2 rounded">
+                          PF ({p.filter_payload.functional_locations_prefixes.length}):{' '}
+                          {p.filter_payload.functional_locations_prefixes.join(', ')}
+                        </span>
+                      )}
+                      {p.filter_payload.arvores && p.filter_payload.arvores.length > 0 && (
+                        <span className="font-mono text-muted-foreground">
+                          Árvores: {p.filter_payload.arvores.join(', ')}
+                        </span>
+                      )}
+                      {p.filter_payload.specialties && p.filter_payload.specialties.length > 0 && (
+                        <span className="font-mono text-amber-600 dark:text-amber-400">
+                          {p.filter_payload.specialties.join(', ')}
+                        </span>
+                      )}
+                      {p.filter_payload.only_pane && <Badge variant="outline" className="text-[9px] text-destructive py-0 px-1 border-destructive/30">Apenas Panes</Badge>}
+                      {p.filter_payload.only_jump && <Badge variant="outline" className="text-[9px] text-amber-600 py-0 px-1 border-amber-600/30">Apenas Jumps</Badge>}
+                      {p.filter_payload.only_relevant && <Badge variant="outline" className="text-[9px] text-emerald-600 py-0 px-1 border-emerald-600/30">Relevantes</Badge>}
+                      {p.filter_payload.only_analyze && <Badge variant="outline" className="text-[9px] text-purple-600 py-0 px-1 border-purple-600/30">Analisar</Badge>}
+                    </div>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  {p.show_in_quickbar && <Badge variant="secondary">Na Barra Rápida</Badge>}
-                  {p.is_default && <Badge variant="outline">Padrão</Badge>}
+                <div className="flex items-center gap-1.5 shrink-0 ml-3">
+                  {p.show_in_quickbar && <Badge variant="secondary" className="text-[10px]">Na Barra Rápida</Badge>}
+                  {p.is_default && <Badge variant="outline" className="text-[10px]">Padrão</Badge>}
+                  
                   <Button
                     size="xs"
                     variant="ghost"
-                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                    className="text-muted-foreground hover:text-foreground h-7 px-2"
+                    onClick={() => {
+                      setPresetToEdit(p)
+                      setPresetModalOpen(true)
+                    }}
+                    title="Editar configurações do filtro e Posições Funcionais"
+                  >
+                    <Pencil className="size-3 mr-1" /> Editar
+                  </Button>
+
+                  <Button
+                    size="xs"
+                    variant="ghost"
+                    className="text-destructive hover:text-destructive hover:bg-destructive/10 h-7 px-2"
                     onClick={() => handleDeletePreset(p.id)}
+                    title="Excluir este filtro pré-cadastrado"
                   >
                     <Trash2 className="size-3" />
                   </Button>
                 </div>
               </div>
             ))}
+            {presets.length === 0 && (
+              <p className="text-[11px] text-muted-foreground italic text-center py-4">
+                Nenhum filtro pré-cadastrado cadastrado. Clique no botão acima para criar o primeiro.
+              </p>
+            )}
           </div>
         </Card>
 
@@ -531,6 +585,14 @@ export function Settings() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Preset Creation & Editing Modal */}
+      <PresetEditorModal
+        open={presetModalOpen}
+        onOpenChange={setPresetModalOpen}
+        presetToEdit={presetToEdit}
+        onSuccess={loadAll}
+      />
     </div>
   )
 }

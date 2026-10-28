@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 import shutil
 from datetime import date, datetime, time, timezone
 from pathlib import Path
@@ -348,8 +349,12 @@ def parse_csv_param(val: Any) -> List[str]:
     if not val:
         return []
     if isinstance(val, list):
-        return [str(v).strip() for v in val if str(v).strip()]
-    return [p.strip() for p in str(val).split(",") if p.strip()]
+        out: List[str] = []
+        for v in val:
+            out.extend(parse_csv_param(v))
+        return out
+    tokens = re.split(r"[,;\n\r]+", str(val))
+    return [p.strip().strip("'\"") for p in tokens if p.strip().strip("'\"")]
 
 
 async def apply_occurrence_filters(
@@ -421,9 +426,20 @@ async def apply_occurrence_filters(
 
     fl_prefixes = parse_csv_param(filters.get("fl_prefixes") or filters.get("functional_locations_prefixes"))
     if fl_prefixes:
-        query = query.where(
-            or_(*[Occurrence.posicao_funcional.ilike(f"{p}%") for p in fl_prefixes])
-        )
+        conditions = []
+        for p in fl_prefixes:
+            p_clean = p.strip()
+            if not p_clean:
+                continue
+            if "%" in p_clean or "_" in p_clean:
+                pattern = p_clean
+            elif p_clean.upper().startswith("BT-") or p_clean.upper().startswith("BT/"):
+                pattern = f"{p_clean}%"
+            else:
+                pattern = f"%{p_clean}%"
+            conditions.append(Occurrence.posicao_funcional.ilike(pattern))
+        if conditions:
+            query = query.where(or_(*conditions))
 
     arvores = parse_csv_param(filters.get("arvores"))
     if arvores:
