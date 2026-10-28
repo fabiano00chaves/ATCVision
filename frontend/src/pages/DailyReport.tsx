@@ -11,6 +11,7 @@ import {
   Check,
   ChevronDown,
   Clock,
+  Database,
   FileText,
   Filter,
   Flame,
@@ -21,20 +22,25 @@ import {
   Search,
   SlidersHorizontal,
   Star,
+  X,
   Zap,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 
 export function DailyReport() {
-  const [mode, setMode] = useState<DailyMode>('last24')
+  const [mode, setMode] = useState<DailyMode>(() => {
+    return (localStorage.getItem('atc_daily_routine_mode') as DailyMode) || 'last24'
+  })
   const [accumDays, setAccumDays] = useState<number>(3)
   const [refDate, setRefDate] = useState<string>('')
   const [windowInfo, setWindowInfo] = useState<DailyWindow | null>(null)
 
   const [presets, setPresets] = useState<Preset[]>([])
   const [presetCounts, setPresetCounts] = useState<Record<string, number>>({})
-  const [activePresetId, setActivePresetId] = useState<string | null>(null)
+  const [activePresetId, setActivePresetId] = useState<string | null>(() => {
+    return localStorage.getItem('atc_preferred_preset_id') || null
+  })
 
   const [recentDocs, setRecentDocs] = useState<PdfDocument[]>([])
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([])
@@ -58,8 +64,16 @@ export function DailyReport() {
   const loadPresetsAndDocs = async () => {
     try {
       const [pList, docs] = await Promise.all([presetsApi.list(), documentsApi.list(15, 0)])
-      setPresets(pList.filter((p) => p.show_in_quickbar))
+      const quickPresets = pList.filter((p) => p.show_in_quickbar)
+      setPresets(quickPresets)
       setRecentDocs(docs.items)
+
+      // Validate persisted preset
+      const savedPresetId = localStorage.getItem('atc_preferred_preset_id')
+      if (savedPresetId && !pList.some((p) => p.id === savedPresetId)) {
+        localStorage.removeItem('atc_preferred_preset_id')
+        setActivePresetId(null)
+      }
     } catch {
       // Ignored
     }
@@ -69,13 +83,39 @@ export function DailyReport() {
     loadPresetsAndDocs()
   }, [])
 
-  // 3. Fetch real-time counts for the active window
+  const handleModeChange = (newMode: DailyMode) => {
+    setMode(newMode)
+    localStorage.setItem('atc_daily_routine_mode', newMode)
+    setSelectedDocIds([])
+  }
+
+  const handlePresetToggle = (preset: Preset) => {
+    if (activePresetId === preset.id) {
+      setActivePresetId(null)
+      localStorage.removeItem('atc_preferred_preset_id')
+      toast.info('Filtro rápido desativado')
+    } else {
+      setActivePresetId(preset.id)
+      localStorage.setItem('atc_preferred_preset_id', preset.id)
+      toast.success(`Foco rápido: ${preset.name}`, {
+        description: 'Filtro preferencial fixado e salvo.',
+      })
+    }
+  }
+
+  const isDocFiltered = selectedDocIds.length > 0
+  const isAllMode = mode === 'all'
+
+  const effectiveStart = isAllMode || isDocFiltered || !windowInfo?.start ? undefined : windowInfo.start
+  const effectiveEnd = isAllMode || isDocFiltered || !windowInfo?.end ? undefined : windowInfo.end
+
+  // 3. Fetch real-time counts for the active window or selected PDFs
   useEffect(() => {
-    if (!windowInfo) return
+    if (!windowInfo && !isAllMode) return
     const baseFilters: OccurrenceFilters = {
-      start: windowInfo.start,
-      end: windowInfo.end,
-      document_ids: selectedDocIds.length > 0 ? selectedDocIds : undefined,
+      start: effectiveStart,
+      end: effectiveEnd,
+      document_ids: isDocFiltered ? selectedDocIds : undefined,
     }
     occurrencesApi
       .counts(baseFilters)
@@ -87,13 +127,13 @@ export function DailyReport() {
         setPresetCounts(countsMap)
       })
       .catch(() => {})
-  }, [windowInfo, selectedDocIds])
+  }, [windowInfo, selectedDocIds, mode, refDate, accumDays])
 
   // Build filters for the Occurrences component
   const computedFilters: OccurrenceFilters = {
-    start: windowInfo?.start,
-    end: windowInfo?.end,
-    document_ids: selectedDocIds.length > 0 ? selectedDocIds : undefined,
+    start: effectiveStart,
+    end: effectiveEnd,
+    document_ids: isDocFiltered ? selectedDocIds : undefined,
     preset_id: activePresetId || undefined,
   }
 
@@ -102,6 +142,27 @@ export function DailyReport() {
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     )
   }
+
+  const getPresetIcon = (iconName: string) => {
+    switch (iconName) {
+      case 'Zap':
+        return <Zap className="size-3" />
+      case 'Flame':
+        return <Flame className="size-3" />
+      case 'AlertTriangle':
+        return <AlertTriangle className="size-3" />
+      case 'OctagonAlert':
+        return <OctagonAlert className="size-3" />
+      case 'Search':
+        return <Search className="size-3" />
+      case 'Star':
+        return <Star className="size-3" />
+      default:
+        return <Filter className="size-3" />
+    }
+  }
+
+  const totalCountInWindow = Object.values(presetCounts).reduce((a, b) => a + b, 0)
 
   return (
     <div className="flex flex-col h-full w-full overflow-hidden">
@@ -117,10 +178,7 @@ export function DailyReport() {
             <Button
               size="xs"
               variant={mode === 'last24' && selectedDocIds.length === 0 ? 'default' : 'outline'}
-              onClick={() => {
-                setMode('last24')
-                setSelectedDocIds([])
-              }}
+              onClick={() => handleModeChange('last24')}
             >
               Último Turno (24h / D-1)
             </Button>
@@ -128,10 +186,7 @@ export function DailyReport() {
             <Button
               size="xs"
               variant={mode === 'weekend' && selectedDocIds.length === 0 ? 'default' : 'outline'}
-              onClick={() => {
-                setMode('weekend')
-                setSelectedDocIds([])
-              }}
+              onClick={() => handleModeChange('weekend')}
             >
               Pós-Final de Semana (Sex → Seg)
             </Button>
@@ -139,12 +194,20 @@ export function DailyReport() {
             <Button
               size="xs"
               variant={mode === 'days' && selectedDocIds.length === 0 ? 'default' : 'outline'}
-              onClick={() => {
-                setMode('days')
-                setSelectedDocIds([])
-              }}
+              onClick={() => handleModeChange('days')}
             >
               Pós-Feriado / Acumulado ({accumDays}d)
+            </Button>
+
+            <Button
+              size="xs"
+              variant={mode === 'all' && selectedDocIds.length === 0 ? 'default' : 'outline'}
+              onClick={() => handleModeChange('all')}
+              className="gap-1"
+              title="Visualiza todo o acervo histórico sem corte de data"
+            >
+              <Database className="size-3" />
+              Todo o Período
             </Button>
 
             {/* Document Picker Toggle */}
@@ -199,25 +262,47 @@ export function DailyReport() {
 
           {/* Reference Date Picker & Active Window Banner */}
           <div className="flex items-center gap-2">
-            <span className="text-[11px] text-muted-foreground hidden sm:inline">Data Ref:</span>
-            <Input
-              type="date"
-              value={refDate}
-              onChange={(e) => setRefDate(e.target.value)}
-              className="h-6 w-32 text-[11px] bg-background"
-            />
+            {mode !== 'all' && (
+              <>
+                <span className="text-[11px] text-muted-foreground hidden sm:inline">Data Ref:</span>
+                <Input
+                  type="date"
+                  value={refDate}
+                  onChange={(e) => setRefDate(e.target.value)}
+                  className="h-6 w-32 text-[11px] bg-background"
+                />
+              </>
+            )}
             {windowInfo && (
-              <Badge variant="outline" className="text-[10px] font-mono font-medium">
-                {windowInfo.label}
+              <Badge variant="outline" className="text-[10px] font-mono font-medium max-w-[320px] truncate">
+                {isDocFiltered ? `Filtrando ${selectedDocIds.length} PDF(s) específico(s)` : windowInfo.label}
               </Badge>
             )}
           </div>
         </div>
 
-        {/* Real-time 1-Click Quickbar Presets */}
+        {/* Informative fallback banner when last24 has zero counts */}
+        {mode === 'last24' && totalCountInWindow === 0 && selectedDocIds.length === 0 && (
+          <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-md text-[11px] text-amber-800 dark:text-amber-300">
+            <div className="flex items-center gap-1.5">
+              <Clock className="size-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+              <span>Nenhuma ocorrência nas últimas 24h deste turno. Se enviou PDFs com datas anteriores, você pode consultar todo o acervo.</span>
+            </div>
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() => handleModeChange('all')}
+              className="h-5 text-[10px] border-amber-500/30 hover:bg-amber-500/20 shrink-0 font-medium"
+            >
+              Ver Todo o Período
+            </Button>
+          </div>
+        )}
+
+        {/* Real-time 1-Click Quickbar Presets with Persistence */}
         <div className="flex items-center gap-1.5 overflow-x-auto pt-1 border-t border-border/40 scrollbar-none">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground shrink-0 pr-1">
-            Foco Rápido:
+          <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground shrink-0 pr-1 flex items-center gap-1">
+            <Filter className="size-3 text-primary" /> Foco Rápido:
           </span>
 
           {presets.map((preset) => {
@@ -226,15 +311,18 @@ export function DailyReport() {
             return (
               <button
                 key={preset.id}
-                onClick={() => setActivePresetId(active ? null : preset.id)}
+                onClick={() => handlePresetToggle(preset)}
+                title={active ? 'Filtro preferencial fixado (clique para desativar)' : `Ativar foco: ${preset.name}`}
                 className={cn(
-                  'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all shrink-0 border',
+                  'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-all shrink-0 border cursor-pointer',
                   active
                     ? 'bg-primary text-primary-foreground border-primary font-bold shadow-xs'
                     : 'bg-background hover:bg-muted text-foreground border-border'
                 )}
               >
+                {getPresetIcon(preset.icon)}
                 <span>{preset.name}</span>
+                {active && <Star className="size-2.5 fill-amber-300 text-amber-300 shrink-0" />}
                 <span
                   className={cn(
                     'text-[10px] px-1.5 py-0.2 rounded-full font-bold font-mono',
@@ -247,11 +335,27 @@ export function DailyReport() {
             )
           })}
 
+          {activePresetId && (
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() => {
+                setActivePresetId(null)
+                localStorage.removeItem('atc_preferred_preset_id')
+                toast.info('Filtro rápido desativado')
+              }}
+              className="text-[11px] text-muted-foreground hover:text-red-500 h-6 shrink-0"
+              title="Limpar foco rápido ativo"
+            >
+              <X className="size-3 mr-0.5" /> Limpar Foco
+            </Button>
+          )}
+
           <Button
             size="xs"
             variant="ghost"
             onClick={() => (window.location.href = '/config')}
-            className="text-[11px] text-primary shrink-0"
+            className="text-[11px] text-primary shrink-0 ml-auto"
           >
             <Plus className="size-3 mr-0.5" /> Gerenciar Filtros
           </Button>

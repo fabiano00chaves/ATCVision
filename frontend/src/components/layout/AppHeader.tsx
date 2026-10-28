@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router'
 import { useAuth } from '@/context/AuthContext'
+import { useSidebar } from '@/context/SidebarContext'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -15,6 +16,7 @@ import {
   FileUp,
   LogOut,
   Moon,
+  PanelLeft,
   Shield,
   Sun,
   User,
@@ -22,6 +24,7 @@ import {
 
 export function AppHeader() {
   const { user, logout } = useAuth()
+  const { toggleCollapsed, collapsed } = useSidebar()
   const [uploadOpen, setUploadOpen] = useState(false)
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     return (localStorage.getItem('atc_theme') as 'light' | 'dark') || 'dark'
@@ -44,7 +47,17 @@ export function AppHeader() {
   return (
     <>
       <header className="h-12 border-b bg-card px-4 flex items-center justify-between z-30 shrink-0">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={toggleCollapsed}
+            className="size-7 text-muted-foreground hover:text-foreground hidden md:flex"
+            title={collapsed ? 'Expandir menu lateral (Ctrl+B)' : 'Recolher menu lateral (Ctrl+B)'}
+          >
+            <PanelLeft className="size-4" />
+          </Button>
+
           <Link to="/" className="flex items-center gap-2 font-bold tracking-wider text-sm">
             <div className="size-7 rounded bg-amber-600 flex items-center justify-center text-white shadow-xs font-mono text-xs">
               ATC

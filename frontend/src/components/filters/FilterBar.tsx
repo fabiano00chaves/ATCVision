@@ -28,6 +28,7 @@ import {
   Zap,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { cn } from '@/lib/utils'
 
 const ARVORES = ['BOF1', 'SLM1', 'CCS1', 'CCS2', 'CCS3', 'PCC1', 'COM0'] as const
 
@@ -43,6 +44,7 @@ export function FilterBar({ filters, onChange, onSavePresetSuccess, compact = fa
   const [presetName, setPresetName] = useState('')
   const [presetColor, setPresetColor] = useState('#3b82f6')
   const [showInQuickbar, setShowInQuickbar] = useState(true)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
 
   // Temporal range helper
   const setTemporalRange = (mode: 'hoje' | 'ontem' | 'semana' | 'mes' | 'ano' | 'clear') => {
@@ -238,6 +240,24 @@ export function FilterBar({ filters, onChange, onSavePresetSuccess, compact = fa
             </Button>
           )}
 
+          {/* Advanced Filters Toggle */}
+          <Button
+            variant={advancedOpen || ((filters.arvores?.length || 0) + (filters.specialties?.length || 0) + (filters.turnos?.length || 0)) > 0 ? 'secondary' : 'outline'}
+            size="xs"
+            onClick={() => setAdvancedOpen(!advancedOpen)}
+            className="h-6 gap-1"
+            title="Filtros por Árvores de Ativos, Especialidade e Turno"
+          >
+            <Filter className="size-3 text-primary" />
+            <span>Mais Filtros</span>
+            {((filters.arvores?.length || 0) + (filters.specialties?.length || 0) + (filters.turnos?.length || 0)) > 0 && (
+              <span className="size-4 rounded-full bg-primary text-primary-foreground text-[9px] font-bold flex items-center justify-center">
+                {(filters.arvores?.length || 0) + (filters.specialties?.length || 0) + (filters.turnos?.length || 0)}
+              </span>
+            )}
+            <ChevronDown className={cn('size-3 transition-transform', advancedOpen && 'rotate-180')} />
+          </Button>
+
           <Button
             variant="outline"
             size="xs"
@@ -251,18 +271,19 @@ export function FilterBar({ filters, onChange, onSavePresetSuccess, compact = fa
         </div>
       </div>
 
-      {/* Second row: Árvores + Specialty */}
-      <div className="flex flex-wrap items-center gap-1 pt-1 border-t border-border/40 text-[11px]">
-        <span className="text-muted-foreground font-semibold px-1">Árvores:</span>
-        {ARVORES.map((arv) => {
-          const active = (filters.arvores || []).includes(arv)
-          return (
-            <button
-              key={arv}
-              onClick={() => toggleArvore(arv)}
-              className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-medium transition-colors border ${
-                active
-                  ? 'bg-primary text-primary-foreground border-primary font-bold shadow-xs'
+      {/* Collapsible Second row: Árvores + Specialty + Turno */}
+      {(advancedOpen || ((filters.arvores?.length || 0) + (filters.specialties?.length || 0) + (filters.turnos?.length || 0)) > 0) && (
+        <div className="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-border/40 text-[11px] animate-in fade-in-50 duration-150">
+          <span className="text-muted-foreground font-semibold px-1">Árvores:</span>
+          {ARVORES.map((arv) => {
+            const active = (filters.arvores || []).includes(arv)
+            return (
+              <button
+                key={arv}
+                onClick={() => toggleArvore(arv)}
+                className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-medium transition-colors border ${
+                  active
+                    ? 'bg-primary text-primary-foreground border-primary font-bold shadow-xs'
                   : 'bg-muted/40 text-muted-foreground border-border hover:bg-muted hover:text-foreground'
               }`}
             >
@@ -325,6 +346,7 @@ export function FilterBar({ filters, onChange, onSavePresetSuccess, compact = fa
           </div>
         </div>
       </div>
+      )}
 
       {/* Save Preset Dialog */}
       <Dialog open={saveOpen} onOpenChange={setSaveOpen}>

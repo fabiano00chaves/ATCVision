@@ -2,6 +2,8 @@ import React from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ErrorBoundary } from '@/components/common/ErrorBoundary'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import { SidebarProvider } from '@/context/SidebarContext'
 import { Toaster } from 'sonner'
 import { AuthProvider, useAuth } from '@/context/AuthContext'
 import { AppShell } from '@/components/layout/AppShell'
@@ -66,29 +68,33 @@ export function App() {
     <ErrorBoundary fallbackTitle="Falha Crítica na Aplicação ATC Vision">
       <QueryClientProvider client={queryClient}>
         <AuthProvider>
-          <BrowserRouter>
-            <Routes>
-              <Route
-                path="/login"
-                element={
-                  <PublicOnlyRoute>
-                    <Login />
-                  </PublicOnlyRoute>
-                }
-              />
-              <Route element={<ProtectedLayout />}>
-                <Route path="/" element={<DailyReport />} />
-                <Route path="/ocorrencias" element={<Occurrences />} />
-                <Route path="/ocorrencias/:id" element={<Occurrences />} />
-                <Route path="/dashboards" element={<Dashboards />} />
-                <Route path="/relatorios" element={<Reports />} />
-                <Route path="/documentos" element={<Documents />} />
-                <Route path="/config" element={<Settings />} />
-              </Route>
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          </BrowserRouter>
-          <Toaster richColors position="top-right" closeButton theme="dark" />
+          <TooltipProvider delayDuration={200}>
+            <SidebarProvider>
+              <BrowserRouter>
+                <Routes>
+                  <Route
+                    path="/login"
+                    element={
+                      <PublicOnlyRoute>
+                        <Login />
+                      </PublicOnlyRoute>
+                    }
+                  />
+                  <Route element={<ProtectedLayout />}>
+                    <Route path="/" element={<DailyReport />} />
+                    <Route path="/ocorrencias" element={<Occurrences />} />
+                    <Route path="/ocorrencias/:id" element={<Occurrences />} />
+                    <Route path="/dashboards" element={<Dashboards />} />
+                    <Route path="/relatorios" element={<Reports />} />
+                    <Route path="/documentos" element={<Documents />} />
+                    <Route path="/config" element={<Settings />} />
+                  </Route>
+                  <Route path="*" element={<Navigate to="/" replace />} />
+                </Routes>
+              </BrowserRouter>
+              <Toaster richColors position="top-right" closeButton theme="dark" />
+            </SidebarProvider>
+          </TooltipProvider>
         </AuthProvider>
       </QueryClientProvider>
     </ErrorBoundary>

@@ -16,12 +16,19 @@ router = APIRouter()
 
 @router.get("/window", response_model=DailyWindowOut)
 async def get_daily_window(
-    mode: str = Query("last24", pattern="^(last24|weekend|days)$"),
+    mode: str = Query("last24", pattern="^(last24|weekend|days|all)$"),
     n: int = Query(3, ge=1, le=30),
     ref: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    if mode == "all":
+        return DailyWindowOut(
+            start="",
+            end="",
+            label="Todo o Período Cadastrado",
+        )
+
     sys_settings = await get_system_settings(db)
     cutoff_time_str = sys_settings.get("daily_cutoff_start", "06:00")
     try:

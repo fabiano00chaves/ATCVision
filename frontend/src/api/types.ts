@@ -251,7 +251,7 @@ export interface OccurrenceFilters {
 }
 
 // ---------- Daily window ----------
-export type DailyMode = 'last24' | 'weekend' | 'days'
+export type DailyMode = 'last24' | 'weekend' | 'days' | 'all'
 export interface DailyWindow {
   start: string
   end: string

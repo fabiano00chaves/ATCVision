@@ -52,6 +52,31 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
   const [highlightFieldKey, setHighlightFieldKey] = useState<FieldKey | null>(null)
   const [highlightBBoxes, setHighlightBBoxes] = useState<BBox[]>([])
 
+  // Synchronize changes to initialFilters from parent (e.g. DailyReport Quickbar presets or document picker)
+  useEffect(() => {
+    if (!initialFilters) return
+    setFilters((prev) => {
+      const next: OccurrenceFilters = { ...prev }
+
+      if (initialFilters.preset_id) {
+        next.preset_id = initialFilters.preset_id
+      } else {
+        delete next.preset_id
+      }
+
+      if (initialFilters.start !== undefined) next.start = initialFilters.start
+      else delete next.start
+
+      if (initialFilters.end !== undefined) next.end = initialFilters.end
+      else delete next.end
+
+      if (initialFilters.document_ids !== undefined) next.document_ids = initialFilters.document_ids
+      else delete next.document_ids
+
+      return next
+    })
+  }, [initialFilters])
+
   // Load occurrences list
   const loadOccurrences = async () => {
     setLoading(true)
@@ -61,6 +86,10 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
       setTotal(res.total)
       if (!selectedId && res.items.length > 0) {
         setSelectedId(res.items[0].id)
+      } else if (res.items.length > 0 && !res.items.some((x) => x.id === selectedId)) {
+        setSelectedId(res.items[0].id)
+      } else if (res.items.length === 0) {
+        setSelectedId(null)
       }
     } catch {
       toast.error('Erro ao carregar ocorrências')
