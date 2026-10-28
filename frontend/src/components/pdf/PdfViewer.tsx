@@ -43,18 +43,36 @@ export function PdfViewer({
   const [scale, setScale] = useState<number>(1.1)
   const [rotation, setRotation] = useState<number>(0)
   const [loading, setLoading] = useState<boolean>(true)
+  const [docLoadError, setDocLoadError] = useState<string | null>(null)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const pageRefs = useRef<Record<number, HTMLDivElement | null>>({})
 
   const pdfUrl = `/api/v1/documents/${documentId}/file`
 
+  // Reset all state when documentId changes
+  useEffect(() => {
+    setNumPages(0)
+    setCurrentPage(1)
+    setLoading(true)
+    setDocLoadError(null)
+    pageRefs.current = {}
+  }, [documentId])
+
   const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
     setNumPages(numPages)
     setLoading(false)
+    setDocLoadError(null)
+  }
+
+  const onDocumentLoadError = (err: any) => {
+    console.error('PDF Load Error:', err)
+    setLoading(false)
+    setDocLoadError(err?.message || 'Erro ao carregar documento PDF')
   }
 
   const scrollToPage = (pageNumber: number, yOffset?: number) => {
+    if (pageNumber < 1 || (numPages > 0 && pageNumber > numPages)) return
     const el = pageRefs.current[pageNumber]
     if (el && containerRef.current) {
       if (yOffset !== undefined && !isNaN(yOffset)) {
@@ -73,15 +91,16 @@ export function PdfViewer({
 
   // Smooth scroll to highlighted bbox or occurrence start page
   useEffect(() => {
+    if (loading || numPages === 0) return
     if (highlightBBoxes && highlightBBoxes.length > 0) {
       const targetPage = highlightBBoxes[0].page
-      if (targetPage) {
+      if (targetPage && targetPage <= numPages) {
         scrollToPage(targetPage, highlightBBoxes[0].y0)
       }
-    } else if (activeMapping?.start_page) {
+    } else if (activeMapping?.start_page && activeMapping.start_page <= numPages) {
       scrollToPage(activeMapping.start_page)
     }
-  }, [highlightBBoxes, activeMapping])
+  }, [highlightBBoxes, activeMapping, loading, numPages])
 
   // Determine which bboxes to draw
   let bboxesToRender: BBox[] = []
@@ -107,19 +126,23 @@ export function PdfViewer({
             size="icon"
             className="h-6 w-6"
             onClick={() => scrollToPage(Math.max(currentPage - 1, 1))}
-            disabled={currentPage <= 1}
+            disabled={currentPage <= 1 || loading || numPages === 0}
           >
             <ChevronLeft className="size-3.5" />
           </Button>
           <span className="font-mono text-[11px] text-muted-foreground">
-            pág. <span className="font-bold text-foreground">{currentPage}</span> / {numPages || '-'}
+            pág.{' '}
+            <span className="font-bold text-foreground">
+              {loading ? '-' : currentPage}
+            </span>{' '}
+            / {numPages || '-'}
           </span>
           <Button
             variant="ghost"
             size="icon"
             className="h-6 w-6"
             onClick={() => scrollToPage(Math.min(currentPage + 1, numPages))}
-            disabled={currentPage >= numPages}
+            disabled={currentPage >= numPages || loading || numPages === 0}
           >
             <ChevronRight className="size-3.5" />
           </Button>
@@ -130,23 +153,24 @@ export function PdfViewer({
             variant="ghost"
             size="icon"
             className="h-6 w-6"
-            onClick={() => setScale((s) => Math.max(Number((s - 0.15).toFixed(2)), 0.6))}
-            title="Reduzir Zoom"
+            onClick={() => setScale((s) => Math.max(0.6, s - 0.15))}
+            title="Reduzir Zoom (-)"
           >
             <ZoomOut className="size-3.5" />
           </Button>
-          <span className="font-mono text-[11px] w-10 text-center text-muted-foreground">
+          <span className="font-mono text-[11px] w-12 text-center text-muted-foreground">
             {Math.round(scale * 100)}%
           </span>
           <Button
             variant="ghost"
             size="icon"
             className="h-6 w-6"
-            onClick={() => setScale((s) => Math.min(Number((s + 0.15).toFixed(2)), 2.5))}
-            title="Aumentar Zoom"
+            onClick={() => setScale((s) => Math.min(2.5, s + 0.15))}
+            title="Aumentar Zoom (+)"
           >
             <ZoomIn className="size-3.5" />
           </Button>
+          <div className="h-3 w-px bg-border mx-1" />
           <Button
             variant="ghost"
             size="icon"
@@ -159,13 +183,19 @@ export function PdfViewer({
         </div>
       </div>
 
-      {/* Floating indicator for field spanning pages */}
-      {spansMultiplePages && distinctPages.length > 1 && (
-        <div className="absolute top-11 right-4 z-20 bg-cyan-600 text-white text-[11px] font-semibold px-2.5 py-1 rounded-full shadow-lg flex items-center gap-1.5 animate-bounce">
-          <span>Continua na pág. {distinctPages.slice(1).join(', ')}</span>
+      {/* Multi-page highlight helper alert */}
+      {spansMultiplePages && (
+        <div className="bg-cyan-500/10 border-b border-cyan-500/20 px-3 py-1 flex items-center justify-between text-[11px] text-cyan-700 dark:text-cyan-300 z-10 shrink-0">
+          <span>
+            ℹ️ O campo destacado estende-se por{' '}
+            <strong>{distinctPages.length} páginas</strong> ({distinctPages.join(', ')}).
+          </span>
           <button
-            onClick={() => scrollToPage(distinctPages[1])}
-            className="underline cursor-pointer hover:opacity-80"
+            onClick={() => {
+              const nextPage = distinctPages.find((p) => p > currentPage) || distinctPages[0]
+              scrollToPage(nextPage)
+            }}
+            className="underline font-semibold ml-2 hover:opacity-80"
           >
             Ver ➔
           </button>
@@ -178,11 +208,13 @@ export function PdfViewer({
         className="flex-1 overflow-auto p-4 flex flex-col items-center gap-4 relative"
       >
         <Document
+          key={documentId}
           file={pdfUrl}
           onLoadSuccess={onDocumentLoadSuccess}
+          onLoadError={onDocumentLoadError}
           loading={
             <div className="flex flex-col items-center justify-center p-12 text-muted-foreground">
-              <Loader2 className="size-6 animate-spin mb-2" />
+              <Loader2 className="size-6 animate-spin mb-2 text-primary" />
               <p className="text-xs">Carregando visualizador PDF...</p>
             </div>
           }
@@ -193,8 +225,8 @@ export function PdfViewer({
               </div>
               <p className="font-semibold text-foreground mb-1">Arquivo PDF Físico Não Disponível</p>
               <p className="text-muted-foreground text-[11px] leading-relaxed mb-3">
-                O arquivo binário pode ter sido liberado do disco durante o saneamento para economia de armazenamento.
-                Todos os dados estruturados e notas SAP continuam íntegros no sistema.
+                {docLoadError ||
+                  'O arquivo binário pode ter sido liberado do disco durante o saneamento para economia de armazenamento. Todos os dados estruturados e notas SAP continuam íntegros no sistema.'}
               </p>
               <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-muted text-[10px] text-muted-foreground font-mono">
                 <span>Visualização técnica estruturada ativa</span>
@@ -202,62 +234,69 @@ export function PdfViewer({
             </div>
           }
         >
-          {Array.from(new Array(numPages), (_, index) => {
-            const pageNum = index + 1
-            const pageBBoxes = (bboxesToRender || []).filter((b) => b && b.page === pageNum)
-            const recordBBoxes = (activeMapping?.field_bboxes?.['record'] || []).filter(
-              (b) => b && b.page === pageNum
-            )
+          {!loading &&
+            numPages > 0 &&
+            Array.from(new Array(numPages), (_, index) => {
+              const pageNum = index + 1
+              const pageBBoxes = (bboxesToRender || []).filter((b) => b && b.page === pageNum)
+              const recordBBoxes = (activeMapping?.field_bboxes?.['record'] || []).filter(
+                (b) => b && b.page === pageNum
+              )
 
-            return (
-              <div
-                key={`page_${pageNum}`}
-                ref={(el) => {
-                  pageRefs.current[pageNum] = el
-                }}
-                className="relative shadow-md bg-white rounded-xs border border-border"
-              >
-                <Page
-                  pageNumber={pageNum}
-                  scale={scale}
-                  rotate={rotation}
-                  renderAnnotationLayer={false}
-                  renderTextLayer={false}
-                />
+              return (
+                <div
+                  key={`doc_${documentId}_page_${pageNum}`}
+                  ref={(el) => {
+                    pageRefs.current[pageNum] = el
+                  }}
+                  className="relative shadow-md bg-white rounded-xs border border-border"
+                >
+                  <Page
+                    pageNumber={pageNum}
+                    scale={scale}
+                    rotate={rotation}
+                    renderAnnotationLayer={false}
+                    renderTextLayer={false}
+                    error={
+                      <div className="p-4 text-center text-xs text-muted-foreground">
+                        Página {pageNum} indisponível
+                      </div>
+                    }
+                  />
 
-                {/* Overlay Layer for Bounding Box Highlights */}
-                <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                  {/* Subtle border for the active occurrence record */}
-                  {recordBBoxes.map((bb, bbi) => (
-                    <div
-                      key={`rec_${bbi}`}
-                      className="absolute border border-primary/30 bg-primary/5 rounded-xs"
-                      style={{
-                        left: `${(bb.x0 || 0) * scale}px`,
-                        top: `${(bb.y0 || 0) * scale}px`,
-                        width: `${Math.max(0, ((bb.x1 || 0) - (bb.x0 || 0)) * scale)}px`,
-                        height: `${Math.max(0, ((bb.y1 || 0) - (bb.y0 || 0)) * scale)}px`,
-                      }}
-                    />
-                  ))}
+                  {/* Overlay Layer for Bounding Box Highlights */}
+                  <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                    {/* Subtle border for the active occurrence record */}
+                    {recordBBoxes.map((bb, bbi) => (
+                      <div
+                        key={`rec_${bbi}`}
+                        className="absolute border border-primary/30 bg-primary/5 rounded-xs"
+                        style={{
+                          left: `${(bb.x0 || 0) * scale}px`,
+                          top: `${(bb.y0 || 0) * scale}px`,
+                          width: `${Math.max(0, ((bb.x1 || 0) - (bb.x0 || 0)) * scale)}px`,
+                          height: `${Math.max(0, ((bb.y1 || 0) - (bb.y0 || 0)) * scale)}px`,
+                        }}
+                      />
+                    ))}
 
-                  {/* Pulsing Glowing Box for Clicked Field */}
-                  {pageBBoxes.map((bb, bbi) => (
-                    <div
-                      key={`hl_${bbi}`}
-                      className="absolute border-2 border-cyan-400 bg-cyan-400/25 rounded-xs shadow-[0_0_12px_rgba(6,182,212,0.8)] animate-pulse"
-                      style={{
-                        left: `${(bb.x0 || 0) * scale - 2}px`,
-                        top: `${(bb.y0 || 0) * scale - 2}px`,
-                        width: `${Math.max(0, ((bb.x1 || 0) - (bb.x0 || 0)) * scale + 4)}px`,
-                        height: `${Math.max(0, ((bb.y1 || 0) - (bb.y0 || 0)) * scale + 4)}px`,
-                      }}
-                    />
-                  ))}
+                    {/* Pulsing Glowing Box for Clicked Field */}
+                    {pageBBoxes.map((bb, bbi) => (
+                      <div
+                        key={`hl_${bbi}`}
+                        className="absolute border-2 border-cyan-400 bg-cyan-400/25 rounded-xs shadow-[0_0_12px_rgba(6,182,212,0.8)] animate-pulse"
+                        style={{
+                          left: `${(bb.x0 || 0) * scale - 2}px`,
+                          top: `${(bb.y0 || 0) * scale - 2}px`,
+                          width: `${Math.max(0, ((bb.x1 || 0) - (bb.x0 || 0)) * scale + 4)}px`,
+                          height: `${Math.max(0, ((bb.y1 || 0) - (bb.y0 || 0)) * scale + 4)}px`,
+                        }}
+                      />
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )
-          })}
+              )
+            })}
         </Document>
       </div>
     </div>

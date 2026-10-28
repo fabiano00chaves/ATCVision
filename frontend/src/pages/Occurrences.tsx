@@ -318,6 +318,7 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
               {selectedPdfDocId ? (
                 <ErrorBoundary fallbackTitle="Falha ao renderizar o visualizador PDF">
                   <PdfViewer
+                    key={selectedPdfDocId}
                     documentId={selectedPdfDocId}
                     activeMapping={activeMapping}
                     highlightFieldKey={highlightFieldKey}
