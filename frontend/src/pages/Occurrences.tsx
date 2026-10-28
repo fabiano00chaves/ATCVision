@@ -56,22 +56,22 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
   useEffect(() => {
     if (!initialFilters) return
     setFilters((prev) => {
-      const next: OccurrenceFilters = { ...prev }
+      const next: OccurrenceFilters = { ...prev, ...initialFilters }
 
-      if (initialFilters.preset_id) {
-        next.preset_id = initialFilters.preset_id
-      } else {
-        delete next.preset_id
-      }
-
-      if (initialFilters.start !== undefined) next.start = initialFilters.start
-      else delete next.start
-
-      if (initialFilters.end !== undefined) next.end = initialFilters.end
-      else delete next.end
-
-      if (initialFilters.document_ids !== undefined) next.document_ids = initialFilters.document_ids
-      else delete next.document_ids
+      // Clean up fields explicitly undefined in initialFilters
+      if (!initialFilters.preset_id) delete next.preset_id
+      if (initialFilters.start === undefined) delete next.start
+      if (initialFilters.end === undefined) delete next.end
+      if (!initialFilters.document_ids) delete next.document_ids
+      if (!initialFilters.fl_prefixes) delete next.fl_prefixes
+      if (!initialFilters.arvores) delete next.arvores
+      if (!initialFilters.specialties) delete next.specialties
+      if (!initialFilters.turnos) delete next.turnos
+      if (!initialFilters.planning_groups) delete next.planning_groups
+      if (!initialFilters.only_pane) delete next.only_pane
+      if (!initialFilters.only_jump) delete next.only_jump
+      if (!initialFilters.only_relevant) delete next.only_relevant
+      if (!initialFilters.only_analyze) delete next.only_analyze
 
       return next
     })
@@ -202,6 +202,7 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
           filters={filters}
           onChange={setFilters}
           onSavePresetSuccess={loadOccurrences}
+          hideQuickbar={!!initialFilters}
         />
       )}
 

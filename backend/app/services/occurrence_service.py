@@ -353,7 +353,17 @@ def parse_csv_param(val: Any) -> List[str]:
         for v in val:
             out.extend(parse_csv_param(v))
         return out
-    tokens = re.split(r"[,;\n\r]+", str(val))
+    s = str(val).strip()
+    if (s.startswith("[") and s.endswith("]")) or (s.startswith("(") and s.endswith(")")):
+        try:
+            import json
+            parsed = json.loads(s)
+            if isinstance(parsed, list):
+                return parse_csv_param(parsed)
+        except Exception:
+            pass
+        s = s.strip("[]()").strip()
+    tokens = re.split(r"[,;\n\r]+", s)
     return [p.strip().strip("'\"") for p in tokens if p.strip().strip("'\"")]
 
 
@@ -437,7 +447,12 @@ async def apply_occurrence_filters(
                 pattern = f"{p_clean}%"
             else:
                 pattern = f"%{p_clean}%"
-            conditions.append(Occurrence.posicao_funcional.ilike(pattern))
+            conditions.append(
+                or_(
+                    Occurrence.posicao_funcional.ilike(pattern),
+                    Occurrence.arvore_planta.ilike(p_clean),
+                )
+            )
         if conditions:
             query = query.where(or_(*conditions))
 

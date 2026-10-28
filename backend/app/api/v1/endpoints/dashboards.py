@@ -136,6 +136,7 @@ async def get_kpis(
 
 @router.get("/bad-actors", response_model=BadActorsOut)
 async def get_bad_actors(
+    request: Request,
     days: int = Query(7, ge=1, le=90),
     min_count: int = Query(2, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
@@ -144,14 +145,23 @@ async def get_bad_actors(
     now_dt = datetime.now()
     since_dt = now_dt - timedelta(days=days)
 
+    filters = dict(request.query_params)
+    # The bad actors endpoint specifically defines its time window via `days`
+    filters.pop("start", None)
+    filters.pop("end", None)
+    filters.pop("days", None)
+    filters.pop("min_count", None)
+
     query = (
         select(Occurrence)
         .where(
             Occurrence.posicao_funcional.isnot(None),
             Occurrence.abertura_timestamp >= since_dt,
         )
-        .order_by(Occurrence.abertura_timestamp.desc())
     )
+    query = await apply_occurrence_filters(query, filters, db)
+    query = query.order_by(Occurrence.abertura_timestamp.desc())
+
     res = await db.execute(query)
     occurrences = res.scalars().all()
 

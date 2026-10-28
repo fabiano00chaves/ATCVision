@@ -27,10 +27,10 @@ interface FunctionalLocationInputProps {
 const COMMON_PLANT_AREAS = [
   { code: 'BT-ST-SLM1', label: 'Refino Secundário (SLM1)' },
   { code: 'BT-ST-BOF1', label: 'Aciaria LD (BOF1)' },
-  { code: 'BT-CC-CCS1', label: 'Lingotamento Contínuo 1' },
-  { code: 'BT-CC-CCS2', label: 'Lingotamento Contínuo 2' },
-  { code: 'BT-CC-CCS3', label: 'Lingotamento Contínuo 3' },
-  { code: 'BT-AC-PCC1', label: 'Pátio de Placas (PCC1)' },
+  { code: 'BT-ST-CCS1', label: 'Lingotamento Contínuo 1 (CCS1)' },
+  { code: 'BT-ST-CCS2', label: 'Lingotamento Contínuo 2 (CCS2)' },
+  { code: 'BT-ST-CCS3', label: 'Lingotamento Contínuo 3 (CCS3)' },
+  { code: 'BT-ST-PCC1', label: 'Pátio de Placas (PCC1)' },
 ]
 
 export function FunctionalLocationInput({

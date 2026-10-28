@@ -130,11 +130,25 @@ export function DailyReport() {
   }, [windowInfo, selectedDocIds, mode, refDate, accumDays])
 
   // Build filters for the Occurrences component
+  const activePreset = presets.find((p) => p.id === activePresetId)
+  const presetPayload = activePreset?.filter_payload
   const computedFilters: OccurrenceFilters = {
     start: effectiveStart,
     end: effectiveEnd,
     document_ids: isDocFiltered ? selectedDocIds : undefined,
     preset_id: activePresetId || undefined,
+    fl_prefixes: presetPayload?.functional_locations_prefixes?.length
+      ? presetPayload.functional_locations_prefixes
+      : undefined,
+    arvores: presetPayload?.arvores?.length ? presetPayload.arvores : undefined,
+    specialties: presetPayload?.specialties?.length ? presetPayload.specialties : undefined,
+    turnos: presetPayload?.turnos?.length ? presetPayload.turnos : undefined,
+    planning_groups: presetPayload?.planning_groups?.length ? presetPayload.planning_groups : undefined,
+    only_pane: presetPayload?.only_pane || undefined,
+    only_jump: presetPayload?.only_jump || undefined,
+    only_relevant: presetPayload?.only_relevant || undefined,
+    only_analyze: presetPayload?.only_analyze || undefined,
+    q: presetPayload?.keywords?.length ? presetPayload.keywords.join(' ') : undefined,
   }
 
   const toggleDocSelection = (id: string) => {

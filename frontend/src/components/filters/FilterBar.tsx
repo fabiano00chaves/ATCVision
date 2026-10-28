@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import type { Especialidade, OccurrenceFilters, StatusATC } from '@/api/types'
+import React, { useEffect, useState } from 'react'
+import type { Especialidade, OccurrenceFilters, Preset, StatusATC } from '@/api/types'
 import { presetsApi } from '@/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,8 +18,11 @@ import {
   Calendar,
   Check,
   ChevronDown,
+  Clock,
+  Compass,
   Filter,
   Flame,
+  Layers,
   OctagonAlert,
   RotateCcw,
   Search,
@@ -38,14 +41,133 @@ interface FilterBarProps {
   onChange: (f: OccurrenceFilters) => void
   onSavePresetSuccess?: () => void
   compact?: boolean
+  hideQuickbar?: boolean
 }
 
-export function FilterBar({ filters, onChange, onSavePresetSuccess, compact = false }: FilterBarProps) {
+export function FilterBar({
+  filters,
+  onChange,
+  onSavePresetSuccess,
+  compact = false,
+  hideQuickbar = false,
+}: FilterBarProps) {
   const [saveOpen, setSaveOpen] = useState(false)
   const [presetName, setPresetName] = useState('')
   const [presetColor, setPresetColor] = useState('#3b82f6')
   const [showInQuickbar, setShowInQuickbar] = useState(true)
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [presets, setPresets] = useState<Preset[]>([])
+
+  const getPresetIcon = (iconName?: string) => {
+    switch (iconName) {
+      case 'Zap':
+        return <Zap className="size-3" />
+      case 'Flame':
+        return <Flame className="size-3" />
+      case 'AlertTriangle':
+        return <AlertTriangle className="size-3" />
+      case 'OctagonAlert':
+        return <OctagonAlert className="size-3" />
+      case 'Search':
+        return <Search className="size-3" />
+      case 'Star':
+        return <Star className="size-3" />
+      case 'Layers':
+        return <Layers className="size-3" />
+      case 'Compass':
+        return <Compass className="size-3" />
+      case 'Clock':
+        return <Clock className="size-3" />
+      default:
+        return <Filter className="size-3" />
+    }
+  }
+
+  const loadPresets = async () => {
+    try {
+      const list = await presetsApi.list()
+      const quick = list.filter((p) => p.show_in_quickbar)
+      setPresets(quick)
+
+      // Auto-apply saved preferred preset on initial mount if no filters are active
+      const savedId = localStorage.getItem('atc_preferred_preset_id')
+      if (savedId && !filters.preset_id && !hasActiveFilters) {
+        const found = quick.find((p) => p.id === savedId)
+        if (found) {
+          const payload = found.filter_payload || {}
+          onChange({
+            ...filters,
+            preset_id: found.id,
+            fl_prefixes: payload.functional_locations_prefixes?.length
+              ? payload.functional_locations_prefixes
+              : undefined,
+            arvores: payload.arvores?.length ? payload.arvores : undefined,
+            specialties: payload.specialties?.length ? payload.specialties : undefined,
+            turnos: payload.turnos?.length ? payload.turnos : undefined,
+            planning_groups: payload.planning_groups?.length ? payload.planning_groups : undefined,
+            only_pane: payload.only_pane || undefined,
+            only_jump: payload.only_jump || undefined,
+            only_relevant: payload.only_relevant || undefined,
+            only_analyze: payload.only_analyze || undefined,
+            q: payload.keywords?.length ? payload.keywords.join(' ') : filters.q,
+          })
+        }
+      }
+    } catch {
+      // Ignored
+    }
+  }
+
+  useEffect(() => {
+    if (!hideQuickbar) {
+      loadPresets()
+    }
+  }, [hideQuickbar])
+
+  const handlePresetToggle = (preset: Preset) => {
+    const isCurrentlyActive = filters.preset_id === preset.id
+    if (isCurrentlyActive) {
+      // Deactivate
+      localStorage.removeItem('atc_preferred_preset_id')
+      const next: OccurrenceFilters = { ...filters }
+      delete next.preset_id
+      delete next.fl_prefixes
+      delete next.arvores
+      delete next.specialties
+      delete next.turnos
+      delete next.planning_groups
+      delete next.only_pane
+      delete next.only_jump
+      delete next.only_relevant
+      delete next.only_analyze
+      onChange(next)
+      toast.info('Foco rápido desativado')
+    } else {
+      // Activate and persist
+      localStorage.setItem('atc_preferred_preset_id', preset.id)
+      const payload = preset.filter_payload || {}
+      const next: OccurrenceFilters = {
+        ...filters,
+        preset_id: preset.id,
+        fl_prefixes: payload.functional_locations_prefixes?.length
+          ? payload.functional_locations_prefixes
+          : undefined,
+        arvores: payload.arvores?.length ? payload.arvores : undefined,
+        specialties: payload.specialties?.length ? payload.specialties : undefined,
+        turnos: payload.turnos?.length ? payload.turnos : undefined,
+        planning_groups: payload.planning_groups?.length ? payload.planning_groups : undefined,
+        only_pane: payload.only_pane || undefined,
+        only_jump: payload.only_jump || undefined,
+        only_relevant: payload.only_relevant || undefined,
+        only_analyze: payload.only_analyze || undefined,
+        q: payload.keywords?.length ? payload.keywords.join(' ') : filters.q,
+      }
+      onChange(next)
+      toast.success(`Foco rápido: ${preset.name}`, {
+        description: 'Filtro preferencial fixado e aplicado.',
+      })
+    }
+  }
 
   // Temporal range helper
   const setTemporalRange = (mode: 'hoje' | 'ontem' | 'semana' | 'mes' | 'ano' | 'clear') => {
@@ -127,6 +249,7 @@ export function FilterBar({ filters, onChange, onSavePresetSuccess, compact = fa
       toast.success(`Filtro "${presetName}" salvo com sucesso!`)
       setSaveOpen(false)
       setPresetName('')
+      loadPresets()
       if (onSavePresetSuccess) onSavePresetSuccess()
     } catch (err: any) {
       toast.error(err.message || 'Erro ao salvar filtro')
@@ -233,7 +356,10 @@ export function FilterBar({ filters, onChange, onSavePresetSuccess, compact = fa
             <Button
               variant="ghost"
               size="xs"
-              onClick={() => onChange({})}
+              onClick={() => {
+                localStorage.removeItem('atc_preferred_preset_id')
+                onChange({})
+              }}
               className="text-muted-foreground hover:text-red-600 h-6"
               title="Limpar todos os filtros"
             >
@@ -280,6 +406,67 @@ export function FilterBar({ filters, onChange, onSavePresetSuccess, compact = fa
           </Button>
         </div>
       </div>
+
+      {/* Quickbar Presets ("Foco Rápido") */}
+      {!hideQuickbar && presets.length > 0 && (
+        <div className="flex items-center gap-1.5 overflow-x-auto pt-1 border-t border-border/40 scrollbar-none">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground shrink-0 pr-1 flex items-center gap-1">
+            <Filter className="size-3 text-primary" /> Foco Rápido:
+          </span>
+
+          {presets.map((preset) => {
+            const active = filters.preset_id === preset.id
+            return (
+              <button
+                key={preset.id}
+                onClick={() => handlePresetToggle(preset)}
+                title={
+                  active
+                    ? 'Filtro preferencial fixado (clique para desativar)'
+                    : `Ativar foco: ${preset.name}`
+                }
+                className={cn(
+                  'inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-medium transition-all shrink-0 border cursor-pointer',
+                  active
+                    ? 'bg-primary text-primary-foreground border-primary font-bold shadow-xs'
+                    : 'bg-background hover:bg-muted text-foreground border-border'
+                )}
+              >
+                {getPresetIcon(preset.icon)}
+                <span>{preset.name}</span>
+                {active && <Star className="size-2.5 fill-amber-300 text-amber-300 shrink-0" />}
+              </button>
+            )
+          })}
+
+          {filters.preset_id && (
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() => {
+                localStorage.removeItem('atc_preferred_preset_id')
+                const next = { ...filters }
+                delete next.preset_id
+                delete next.fl_prefixes
+                delete next.arvores
+                delete next.specialties
+                delete next.turnos
+                delete next.planning_groups
+                delete next.only_pane
+                delete next.only_jump
+                delete next.only_relevant
+                delete next.only_analyze
+                onChange(next)
+                toast.info('Foco rápido desativado')
+              }}
+              className="text-[10px] text-muted-foreground hover:text-red-500 h-5 px-1.5 shrink-0"
+              title="Limpar foco rápido ativo"
+            >
+              <X className="size-2.5 mr-0.5" /> Limpar Foco
+            </Button>
+          )}
+        </div>
+      )}
 
       {/* Collapsible Second row: Posição Funcional (PF) + Árvores + Specialty + Turno */}
       {(advancedOpen ||
