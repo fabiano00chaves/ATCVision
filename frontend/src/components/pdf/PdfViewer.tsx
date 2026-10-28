@@ -5,11 +5,8 @@ import { Button } from '@/components/ui/button'
 import {
   ChevronLeft,
   ChevronRight,
-  ExternalLink,
   Loader2,
-  Maximize2,
   RotateCw,
-  Search,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
@@ -40,7 +37,6 @@ export function PdfViewer({
   const [scale, setScale] = useState<number>(1.1)
   const [rotation, setRotation] = useState<number>(0)
   const [loading, setLoading] = useState<boolean>(true)
-  const [pageWidths, setPageWidths] = useState<Record<number, number>>({})
 
   const containerRef = useRef<HTMLDivElement>(null)
   const pageRefs = useRef<Record<number, HTMLDivElement | null>>({})
@@ -52,24 +48,14 @@ export function PdfViewer({
     setLoading(false)
   }
 
-  // Smooth scroll to highlighted bbox or occurrence start page
-  useEffect(() => {
-    if (highlightBBoxes && highlightBBoxes.length > 0) {
-      const targetPage = highlightBBoxes[0].page
-      scrollToPage(targetPage, highlightBBoxes[0].y0)
-    } else if (activeMapping?.start_page) {
-      scrollToPage(activeMapping.start_page)
-    }
-  }, [highlightBBoxes, activeMapping])
-
   const scrollToPage = (pageNumber: number, yOffset?: number) => {
     const el = pageRefs.current[pageNumber]
     if (el && containerRef.current) {
-      if (yOffset !== undefined) {
-        const pageW = el.clientWidth
-        const origW = activeMapping?.page_sizes[pageNumber - 1]?.w || 595
-        const pageScale = pageW / origW
-        const targetTop = el.offsetTop + yOffset * pageScale - 60
+      if (yOffset !== undefined && !isNaN(yOffset)) {
+        const pageW = el.clientWidth || 595
+        const origW = activeMapping?.page_sizes?.[pageNumber - 1]?.w || 595
+        const pageScale = origW > 0 ? pageW / origW : scale
+        const targetTop = Math.max(0, el.offsetTop + yOffset * pageScale - 60)
         containerRef.current.scrollTo({ top: targetTop, behavior: 'smooth' })
       } else {
         el.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -79,16 +65,30 @@ export function PdfViewer({
     }
   }
 
+  // Smooth scroll to highlighted bbox or occurrence start page
+  useEffect(() => {
+    if (highlightBBoxes && highlightBBoxes.length > 0) {
+      const targetPage = highlightBBoxes[0].page
+      if (targetPage) {
+        scrollToPage(targetPage, highlightBBoxes[0].y0)
+      }
+    } else if (activeMapping?.start_page) {
+      scrollToPage(activeMapping.start_page)
+    }
+  }, [highlightBBoxes, activeMapping])
+
   // Determine which bboxes to draw
   let bboxesToRender: BBox[] = []
   if (highlightBBoxes && highlightBBoxes.length > 0) {
     bboxesToRender = highlightBBoxes
-  } else if (highlightFieldKey && activeMapping?.field_bboxes[highlightFieldKey]) {
+  } else if (highlightFieldKey && activeMapping?.field_bboxes?.[highlightFieldKey]) {
     bboxesToRender = activeMapping.field_bboxes[highlightFieldKey] || []
   }
 
   // Check if highlighted field spans multiple pages
-  const distinctPages = Array.from(new Set(bboxesToRender.map((b) => b.page))).sort()
+  const distinctPages = Array.from(
+    new Set((bboxesToRender || []).map((b) => b?.page).filter((p): p is number => typeof p === 'number' && p > 0))
+  ).sort((a, b) => a - b)
   const spansMultiplePages = distinctPages.length > 1
 
   return (
@@ -124,7 +124,7 @@ export function PdfViewer({
             variant="ghost"
             size="icon"
             className="h-6 w-6"
-            onClick={() => setScale((s) => Math.max(s - 0.15, 0.6))}
+            onClick={() => setScale((s) => Math.max(Number((s - 0.15).toFixed(2)), 0.6))}
             title="Reduzir Zoom"
           >
             <ZoomOut className="size-3.5" />
@@ -136,7 +136,7 @@ export function PdfViewer({
             variant="ghost"
             size="icon"
             className="h-6 w-6"
-            onClick={() => setScale((s) => Math.min(s + 0.15, 2.5))}
+            onClick={() => setScale((s) => Math.min(Number((s + 0.15).toFixed(2)), 2.5))}
             title="Aumentar Zoom"
           >
             <ZoomIn className="size-3.5" />
@@ -154,7 +154,7 @@ export function PdfViewer({
       </div>
 
       {/* Floating indicator for field spanning pages */}
-      {spansMultiplePages && (
+      {spansMultiplePages && distinctPages.length > 1 && (
         <div className="absolute top-11 right-4 z-20 bg-cyan-600 text-white text-[11px] font-semibold px-2.5 py-1 rounded-full shadow-lg flex items-center gap-1.5 animate-bounce">
           <span>Continua na pág. {distinctPages.slice(1).join(', ')}</span>
           <button
@@ -189,14 +189,10 @@ export function PdfViewer({
         >
           {Array.from(new Array(numPages), (_, index) => {
             const pageNum = index + 1
-            const pageBBoxes = bboxesToRender.filter((b) => b.page === pageNum)
-            const recordBBoxes = (activeMapping?.field_bboxes['record'] || []).filter(
-              (b) => b.page === pageNum
+            const pageBBoxes = (bboxesToRender || []).filter((b) => b && b.page === pageNum)
+            const recordBBoxes = (activeMapping?.field_bboxes?.['record'] || []).filter(
+              (b) => b && b.page === pageNum
             )
-
-            const origWidth = activeMapping?.page_sizes[pageNum - 1]?.w || 595
-            const currentWidth = pageWidths[pageNum] || origWidth * scale
-            const coordScale = currentWidth / origWidth
 
             return (
               <div
@@ -211,10 +207,7 @@ export function PdfViewer({
                   scale={scale}
                   rotate={rotation}
                   renderAnnotationLayer={false}
-                  renderTextLayer={true}
-                  onRenderSuccess={(page) => {
-                    setPageWidths((prev) => ({ ...prev, [pageNum]: page.width }))
-                  }}
+                  renderTextLayer={false}
                 />
 
                 {/* Overlay Layer for Bounding Box Highlights */}
@@ -225,10 +218,10 @@ export function PdfViewer({
                       key={`rec_${bbi}`}
                       className="absolute border border-primary/30 bg-primary/5 rounded-xs"
                       style={{
-                        left: `${bb.x0 * coordScale}px`,
-                        top: `${bb.y0 * coordScale}px`,
-                        width: `${(bb.x1 - bb.x0) * coordScale}px`,
-                        height: `${(bb.y1 - bb.y0) * coordScale}px`,
+                        left: `${(bb.x0 || 0) * scale}px`,
+                        top: `${(bb.y0 || 0) * scale}px`,
+                        width: `${Math.max(0, ((bb.x1 || 0) - (bb.x0 || 0)) * scale)}px`,
+                        height: `${Math.max(0, ((bb.y1 || 0) - (bb.y0 || 0)) * scale)}px`,
                       }}
                     />
                   ))}
@@ -239,10 +232,10 @@ export function PdfViewer({
                       key={`hl_${bbi}`}
                       className="absolute border-2 border-cyan-400 bg-cyan-400/25 rounded-xs shadow-[0_0_12px_rgba(6,182,212,0.8)] animate-pulse"
                       style={{
-                        left: `${bb.x0 * coordScale - 2}px`,
-                        top: `${bb.y0 * coordScale - 2}px`,
-                        width: `${(bb.x1 - bb.x0) * coordScale + 4}px`,
-                        height: `${(bb.y1 - bb.y0) * coordScale + 4}px`,
+                        left: `${(bb.x0 || 0) * scale - 2}px`,
+                        top: `${(bb.y0 || 0) * scale - 2}px`,
+                        width: `${Math.max(0, ((bb.x1 || 0) - (bb.x0 || 0)) * scale + 4)}px`,
+                        height: `${Math.max(0, ((bb.y1 || 0) - (bb.y0 || 0)) * scale + 4)}px`,
                       }}
                     />
                   ))}

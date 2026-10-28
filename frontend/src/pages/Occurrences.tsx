@@ -14,6 +14,7 @@ import { FilterBar } from '@/components/filters/FilterBar'
 import { OccurrenceCard } from '@/components/occurrence/OccurrenceCard'
 import { OccurrenceTechnicalSheet } from '@/components/occurrence/OccurrenceTechnicalSheet'
 import { PdfViewer } from '@/components/pdf/PdfViewer'
+import { ErrorBoundary } from '@/components/common/ErrorBoundary'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -89,7 +90,7 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
           if (data.mappings && data.mappings.length > 0) {
             setActiveMapping(data.mappings[0])
             // Default highlight on record box
-            const recBBoxes = data.mappings[0].field_bboxes['record'] || []
+            const recBBoxes = data.mappings[0].field_bboxes?.['record'] || []
             setHighlightBBoxes(recBBoxes)
           } else {
             setActiveMapping(null)
@@ -112,7 +113,7 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
   // Click-to-highlight field in PDF
   const handleHighlightField = (key: FieldKey) => {
     setHighlightFieldKey(key)
-    if (activeMapping && activeMapping.field_bboxes[key]) {
+    if (activeMapping && activeMapping.field_bboxes?.[key]) {
       setHighlightBBoxes(activeMapping.field_bboxes[key] || [])
     }
   }
@@ -286,12 +287,14 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
             {/* Right Panel: Interactive PDF.js Viewer */}
             <Panel defaultSize={50} minSize={30} className="h-full">
               {selectedPdfDocId ? (
-                <PdfViewer
-                  documentId={selectedPdfDocId}
-                  activeMapping={activeMapping}
-                  highlightFieldKey={highlightFieldKey}
-                  highlightBBoxes={highlightBBoxes}
-                />
+                <ErrorBoundary fallbackTitle="Falha ao renderizar o visualizador PDF">
+                  <PdfViewer
+                    documentId={selectedPdfDocId}
+                    activeMapping={activeMapping}
+                    highlightFieldKey={highlightFieldKey}
+                    highlightBBoxes={highlightBBoxes}
+                  />
+                </ErrorBoundary>
               ) : (
                 <div className="h-full flex flex-col items-center justify-center text-muted-foreground p-8">
                   <FileText className="size-10 mb-2 opacity-40" />
@@ -307,12 +310,14 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
             {/* 100% PDF */}
             <div className="flex-1 h-full">
               {selectedPdfDocId ? (
-                <PdfViewer
-                  documentId={selectedPdfDocId}
-                  activeMapping={activeMapping}
-                  highlightFieldKey={highlightFieldKey}
-                  highlightBBoxes={highlightBBoxes}
-                />
+                <ErrorBoundary fallbackTitle="Falha ao renderizar o visualizador PDF">
+                  <PdfViewer
+                    documentId={selectedPdfDocId}
+                    activeMapping={activeMapping}
+                    highlightFieldKey={highlightFieldKey}
+                    highlightBBoxes={highlightBBoxes}
+                  />
+                </ErrorBoundary>
               ) : (
                 <div className="h-full flex items-center justify-center text-muted-foreground">
                   Nenhum PDF selecionado
