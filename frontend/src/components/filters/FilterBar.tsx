@@ -262,39 +262,128 @@ export function FilterBar({
   })
 
   return (
-    <div className="bg-card border-b p-2 space-y-2 text-xs shrink-0">
-      <div className="flex flex-wrap items-center gap-1.5 justify-between">
+    <div className="bg-card border-b p-2 sm:p-2.5 space-y-2 text-xs shrink-0 shadow-2xs">
+      {/* Top Search & Filter Toggles Row */}
+      <div className="flex items-center gap-2">
         {/* Keyword Search */}
-        <div className="relative flex-1 min-w-[200px] max-w-md">
-          <Search className="absolute left-2.5 top-2 size-3.5 text-muted-foreground" />
+        <div className="relative flex-1 min-w-[160px]">
+          <Search className="absolute left-2.5 top-2.5 size-3.5 text-muted-foreground" />
           <Input
             value={filters.q || ''}
             onChange={(e) => onChange({ ...filters, q: e.target.value || undefined })}
-            placeholder="Buscar por tag, nota, ordem, defeito, causa, comentário..."
-            className="pl-8 h-7 text-xs bg-background"
+            placeholder="Buscar tag, nota, ordem, defeito, causa..."
+            className="pl-8 h-8 text-xs bg-background"
           />
           {filters.q && (
             <button
               onClick={() => onChange({ ...filters, q: undefined })}
-              className="absolute right-2 top-1.5 text-muted-foreground hover:text-foreground"
+              className="absolute right-2 top-2 text-muted-foreground hover:text-foreground p-0.5"
             >
               <X className="size-3.5" />
             </button>
           )}
         </div>
 
+        {/* More Filters Toggle */}
+        {(() => {
+          const activeCount =
+            (filters.arvores?.length || 0) +
+            (filters.specialties?.length || 0) +
+            (filters.turnos?.length || 0) +
+            (filters.fl_prefixes?.length || 0)
+          return (
+            <Button
+              variant={advancedOpen || activeCount > 0 ? 'secondary' : 'outline'}
+              size="xs"
+              onClick={() => setAdvancedOpen(!advancedOpen)}
+              className="h-8 gap-1.5 shrink-0 px-2.5"
+              title="Filtros por Posição Funcional, Árvores de Ativos, Especialidade e Turno"
+            >
+              <Filter className="size-3.5 text-primary" />
+              <span className="hidden sm:inline">Mais Filtros</span>
+              {activeCount > 0 && (
+                <span className="size-4 rounded-full bg-primary text-primary-foreground text-[9px] font-bold flex items-center justify-center">
+                  {activeCount}
+                </span>
+              )}
+              <ChevronDown className={cn('size-3.5 transition-transform', advancedOpen && 'rotate-180')} />
+            </Button>
+          )
+        })()}
+
+        {hasActiveFilters && (
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => {
+              localStorage.removeItem('atc_preferred_preset_id')
+              onChange({})
+            }}
+            className="text-muted-foreground hover:text-red-600 h-8 px-2 shrink-0"
+            title="Limpar todos os filtros"
+          >
+            <RotateCcw className="size-3.5 mr-1" />
+            <span className="hidden sm:inline">Limpar</span>
+          </Button>
+        )}
+      </div>
+
+      {/* Row 2: Scrollable Quick Chips (Panes, Jumps, Relevantes, Analisar, Temporal, Save Preset) */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
+        <Button
+          variant={filters.only_pane ? 'pane' : 'outline'}
+          size="xs"
+          onClick={() => onChange({ ...filters, only_pane: !filters.only_pane || undefined })}
+          className="h-6.5 px-2 text-xs shrink-0 font-bold"
+        >
+          <OctagonAlert className="size-3 mr-1" />
+          Panes
+        </Button>
+
+        <Button
+          variant={filters.only_jump ? 'jump' : 'outline'}
+          size="xs"
+          onClick={() => onChange({ ...filters, only_jump: !filters.only_jump || undefined })}
+          className="h-6.5 px-2 text-xs shrink-0 font-bold"
+        >
+          <AlertTriangle className="size-3 mr-1" />
+          Jumps / Forces
+        </Button>
+
+        <Button
+          variant={filters.only_relevant ? 'default' : 'outline'}
+          size="xs"
+          onClick={() => onChange({ ...filters, only_relevant: !filters.only_relevant || undefined })}
+          className="h-6.5 px-2 text-xs shrink-0 font-bold"
+        >
+          <Star className="size-3 fill-current mr-1" />
+          Relevantes
+        </Button>
+
+        <Button
+          variant={filters.only_analyze ? 'default' : 'outline'}
+          size="xs"
+          onClick={() => onChange({ ...filters, only_analyze: !filters.only_analyze || undefined })}
+          className="h-6.5 px-2 text-xs shrink-0 font-bold"
+        >
+          <Search className="size-3 mr-1" />
+          Analisar
+        </Button>
+
         {/* Temporal shortcuts */}
-        <div className="flex items-center gap-1 bg-muted/60 p-0.5 rounded-md">
-          <Button variant="ghost" size="xs" onClick={() => setTemporalRange('hoje')}>
+        <div className="h-4 w-px bg-border/80 shrink-0 mx-0.5" />
+
+        <div className="flex items-center gap-1 bg-muted/60 p-0.5 rounded-md shrink-0">
+          <Button variant="ghost" size="xs" onClick={() => setTemporalRange('hoje')} className="h-5 px-1.5 text-[11px]">
             Hoje
           </Button>
-          <Button variant="ghost" size="xs" onClick={() => setTemporalRange('ontem')}>
+          <Button variant="ghost" size="xs" onClick={() => setTemporalRange('ontem')} className="h-5 px-1.5 text-[11px]">
             Ontem
           </Button>
-          <Button variant="ghost" size="xs" onClick={() => setTemporalRange('semana')}>
+          <Button variant="ghost" size="xs" onClick={() => setTemporalRange('semana')} className="h-5 px-1.5 text-[11px]">
             Semana
           </Button>
-          <Button variant="ghost" size="xs" onClick={() => setTemporalRange('mes')}>
+          <Button variant="ghost" size="xs" onClick={() => setTemporalRange('mes')} className="h-5 px-1.5 text-[11px]">
             Mês
           </Button>
           {(filters.start || filters.end) && (
@@ -302,7 +391,7 @@ export function FilterBar({
               variant="ghost"
               size="xs"
               onClick={() => setTemporalRange('clear')}
-              className="text-amber-600 dark:text-amber-400 font-bold"
+              className="text-amber-600 dark:text-amber-400 font-bold h-5 px-1"
               title="Limpar filtro de data"
             >
               ✕
@@ -310,101 +399,18 @@ export function FilterBar({
           )}
         </div>
 
-        {/* Action Toggles */}
-        <div className="flex items-center gap-1">
-          <Button
-            variant={filters.only_pane ? 'pane' : 'outline'}
-            size="xs"
-            onClick={() => onChange({ ...filters, only_pane: !filters.only_pane || undefined })}
-            className="h-6"
-          >
-            <OctagonAlert className="size-3" />
-            Panes
-          </Button>
+        <div className="h-4 w-px bg-border/80 shrink-0 mx-0.5" />
 
-          <Button
-            variant={filters.only_jump ? 'jump' : 'outline'}
-            size="xs"
-            onClick={() => onChange({ ...filters, only_jump: !filters.only_jump || undefined })}
-            className="h-6"
-          >
-            <AlertTriangle className="size-3" />
-            Jumps / Forces
-          </Button>
-
-          <Button
-            variant={filters.only_relevant ? 'default' : 'outline'}
-            size="xs"
-            onClick={() => onChange({ ...filters, only_relevant: !filters.only_relevant || undefined })}
-            className="h-6"
-          >
-            <Star className="size-3 fill-current" />
-            Relevantes
-          </Button>
-
-          <Button
-            variant={filters.only_analyze ? 'default' : 'outline'}
-            size="xs"
-            onClick={() => onChange({ ...filters, only_analyze: !filters.only_analyze || undefined })}
-            className="h-6"
-          >
-            <Search className="size-3" />
-            Analisar
-          </Button>
-
-          {hasActiveFilters && (
-            <Button
-              variant="ghost"
-              size="xs"
-              onClick={() => {
-                localStorage.removeItem('atc_preferred_preset_id')
-                onChange({})
-              }}
-              className="text-muted-foreground hover:text-red-600 h-6"
-              title="Limpar todos os filtros"
-            >
-              <RotateCcw className="size-3" />
-            </Button>
-          )}
-
-          {/* Advanced Filters Toggle */}
-          {(() => {
-            const activeCount =
-              (filters.arvores?.length || 0) +
-              (filters.specialties?.length || 0) +
-              (filters.turnos?.length || 0) +
-              (filters.fl_prefixes?.length || 0)
-            return (
-              <Button
-                variant={advancedOpen || activeCount > 0 ? 'secondary' : 'outline'}
-                size="xs"
-                onClick={() => setAdvancedOpen(!advancedOpen)}
-                className="h-6 gap-1"
-                title="Filtros por Posição Funcional, Árvores de Ativos, Especialidade e Turno"
-              >
-                <Filter className="size-3 text-primary" />
-                <span>Mais Filtros</span>
-                {activeCount > 0 && (
-                  <span className="size-4 rounded-full bg-primary text-primary-foreground text-[9px] font-bold flex items-center justify-center">
-                    {activeCount}
-                  </span>
-                )}
-                <ChevronDown className={cn('size-3 transition-transform', advancedOpen && 'rotate-180')} />
-              </Button>
-            )
-          })()}
-
-          <Button
-            variant="outline"
-            size="xs"
-            onClick={() => setSaveOpen(true)}
-            className="h-6 border-dashed"
-            title="Salvar filtros atuais como Preset"
-          >
-            <BookmarkPlus className="size-3 text-primary" />
-            Salvar Preset
-          </Button>
-        </div>
+        <Button
+          variant="outline"
+          size="xs"
+          onClick={() => setSaveOpen(true)}
+          className="h-6.5 px-2 border-dashed shrink-0 text-xs font-medium"
+          title="Salvar filtros atuais como Preset"
+        >
+          <BookmarkPlus className="size-3 text-primary mr-1" />
+          Salvar Preset
+        </Button>
       </div>
 
       {/* Quickbar Presets ("Foco Rápido") */}

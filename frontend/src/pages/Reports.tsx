@@ -7,7 +7,8 @@ import type {
   ReportField,
   ReportTemplate,
 } from '@/api/types'
-import { FilterBar } from '@/components/filters/FilterBar'
+import { FilterSidebar } from '@/components/filters/FilterSidebar'
+import { QuickbarPresets } from '@/components/filters/QuickbarPresets'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -34,6 +35,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { copyToClipboard } from '@/lib/utils'
 
 export function Reports() {
   const [filters, setFilters] = useState<OccurrenceFilters>({})
@@ -161,16 +163,23 @@ export function Reports() {
     }
   }
 
-  const copyToClipboard = () => {
-    navigator.clipboard.writeText(generatedText)
-    toast.success('Texto copiado para a área de transferência!')
+  const handleCopyText = async () => {
+    const ok = await copyToClipboard(generatedText)
+    if (ok) {
+      toast.success('Texto copiado para a área de transferência!')
+    } else {
+      toast.error('Erro ao copiar texto')
+    }
   }
 
   return (
-    <div className="flex flex-col h-full w-full overflow-hidden bg-background">
-      <FilterBar filters={filters} onChange={setFilters} />
+    <div className="flex h-full w-full overflow-hidden bg-background">
+      <FilterSidebar filters={filters} onChange={setFilters} />
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-6 max-w-5xl mx-auto w-full">
+      <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
+        <QuickbarPresets filters={filters} onChange={setFilters} />
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-6 max-w-5xl mx-auto w-full">
         {/* Template Selector Bar */}
         <div className="flex flex-wrap items-center justify-between gap-2 border-b pb-3">
           <div className="flex items-center gap-2">
@@ -355,7 +364,7 @@ export function Reports() {
             <Button variant="ghost" size="sm" onClick={() => setTextPreviewOpen(false)}>
               Fechar
             </Button>
-            <Button size="sm" onClick={copyToClipboard} className="bg-emerald-600 hover:bg-emerald-700">
+            <Button size="sm" onClick={handleCopyText} className="bg-emerald-600 hover:bg-emerald-700">
               <Copy className="size-3.5 mr-1.5" />
               Copiar para Área de Transferência
             </Button>
@@ -403,5 +412,6 @@ export function Reports() {
         </DialogContent>
       </Dialog>
     </div>
+  </div>
   )
 }

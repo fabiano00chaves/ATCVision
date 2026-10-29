@@ -8,6 +8,7 @@ import {
   FileText,
   Loader2,
   RotateCw,
+  Scaling,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
@@ -40,7 +41,12 @@ export function PdfViewer({
 }: PdfViewerProps) {
   const [numPages, setNumPages] = useState<number>(0)
   const [currentPage, setCurrentPage] = useState<number>(1)
-  const [scale, setScale] = useState<number>(1.1)
+  const [scale, setScale] = useState<number>(() => {
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      return 0.58
+    }
+    return 1.05
+  })
   const [rotation, setRotation] = useState<number>(0)
   const [loading, setLoading] = useState<boolean>(true)
   const [docLoadError, setDocLoadError] = useState<string | null>(null)
@@ -49,6 +55,18 @@ export function PdfViewer({
   const pageRefs = useRef<Record<number, HTMLDivElement | null>>({})
 
   const pdfUrl = `/api/v1/documents/${documentId}/file`
+
+  // Fit scale dynamically to container width
+  const fitToWidth = () => {
+    if (!containerRef.current) return
+    const containerW = containerRef.current.clientWidth
+    if (!containerW) return
+    const firstPageW = activeMapping?.page_sizes?.[0]?.w || 595
+    const padding = containerW < 640 ? 16 : 32
+    const availableW = Math.max(180, containerW - padding)
+    const newScale = Math.min(2.5, Math.max(0.4, Number((availableW / firstPageW).toFixed(2))))
+    setScale(newScale)
+  }
 
   // Reset all state when documentId changes
   useEffect(() => {
@@ -59,10 +77,25 @@ export function PdfViewer({
     pageRefs.current = {}
   }, [documentId])
 
+  // Window resize handler for narrow/mobile screens
+  useEffect(() => {
+    const handleResize = () => {
+      if (containerRef.current && (containerRef.current.clientWidth < 768 || window.innerWidth < 768)) {
+        fitToWidth()
+      }
+    }
+    window.addEventListener('resize', handleResize)
+    return () => window.removeEventListener('resize', handleResize)
+  }, [activeMapping])
+
   const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
     setNumPages(numPages)
     setLoading(false)
     setDocLoadError(null)
+    // Auto-fit to width on load if mobile or narrow pane
+    setTimeout(() => {
+      fitToWidth()
+    }, 60)
   }
 
   const onDocumentLoadError = (err: any) => {
@@ -153,19 +186,28 @@ export function PdfViewer({
             variant="ghost"
             size="icon"
             className="h-6 w-6"
-            onClick={() => setScale((s) => Math.max(0.6, s - 0.15))}
+            onClick={fitToWidth}
+            title="Ajustar à largura da tela"
+          >
+            <Scaling className="size-3.5 text-primary" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={() => setScale((s) => Math.max(0.4, Number((s - 0.15).toFixed(2))))}
             title="Reduzir Zoom (-)"
           >
             <ZoomOut className="size-3.5" />
           </Button>
-          <span className="font-mono text-[11px] w-12 text-center text-muted-foreground">
+          <span className="font-mono text-[11px] w-12 text-center text-muted-foreground select-none">
             {Math.round(scale * 100)}%
           </span>
           <Button
             variant="ghost"
             size="icon"
             className="h-6 w-6"
-            onClick={() => setScale((s) => Math.min(2.5, s + 0.15))}
+            onClick={() => setScale((s) => Math.min(2.5, Number((s + 0.15).toFixed(2))))}
             title="Aumentar Zoom (+)"
           >
             <ZoomIn className="size-3.5" />
@@ -205,7 +247,7 @@ export function PdfViewer({
       {/* PDF Scroll Area */}
       <div
         ref={containerRef}
-        className="flex-1 overflow-auto p-4 flex flex-col items-center gap-4 relative"
+        className="flex-1 overflow-auto p-2 sm:p-4 flex flex-col items-center gap-3 sm:gap-4 relative touch-pan-x touch-pan-y"
       >
         <Document
           key={documentId}

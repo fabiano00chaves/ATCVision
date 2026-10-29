@@ -23,7 +23,8 @@ import type {
   OccurrenceSummary,
   Paginated,
 } from '@/api/types'
-import { FilterBar } from '@/components/filters/FilterBar'
+import { FilterSidebar } from '@/components/filters/FilterSidebar'
+import { QuickbarPresets } from '@/components/filters/QuickbarPresets'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -90,10 +91,13 @@ export function Dashboards() {
   }
 
   return (
-    <div className="flex flex-col h-full w-full overflow-hidden bg-background">
-      <FilterBar filters={filters} onChange={setFilters} />
+    <div className="flex h-full w-full overflow-hidden bg-background">
+      <FilterSidebar filters={filters} onChange={setFilters} />
 
-      <div className="flex-1 overflow-y-auto p-4 space-y-6 max-w-7xl mx-auto w-full">
+      <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
+        <QuickbarPresets filters={filters} onChange={setFilters} totalCount={kpis?.total} />
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-6 max-w-7xl mx-auto w-full">
         {/* KPI Cards Row */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           <Card className="shadow-2xs">
@@ -220,16 +224,16 @@ export function Dashboards() {
 
         {/* Operational Risk: Jumps & Forces Monitor */}
         <Card className="shadow-2xs">
-          <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between">
+          <CardHeader className="p-4 pb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
               <CardTitle className="text-xs font-semibold flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
-                <AlertTriangle className="size-4" /> Monitor de Risco Operacional: Jumps e By-passes Ativos
+                <AlertTriangle className="size-4 shrink-0" /> Monitor de Risco Operacional: Jumps e By-passes Ativos
               </CardTitle>
               <CardDescription className="text-[11px]">
                 Controle de forças provisórias em PLC, jumpeamento de bornes e setpoints modificados
               </CardDescription>
             </div>
-            <div className="flex gap-1">
+            <div className="flex gap-1 shrink-0">
               {(['PENDENTE', 'RETIRADO', 'ALL'] as const).map((st) => (
                 <Button
                   key={st}
@@ -296,16 +300,16 @@ export function Dashboards() {
 
         {/* Bad Actors Ranking */}
         <Card className="shadow-2xs">
-          <CardHeader className="p-4 pb-2 flex flex-row items-center justify-between">
+          <CardHeader className="p-4 pb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
               <CardTitle className="text-xs font-semibold flex items-center gap-1.5 text-red-600 dark:text-red-400">
-                <ShieldAlert className="size-4" /> Análise de "Bad Actors" (Ativos Críticos e Reincidência)
+                <ShieldAlert className="size-4 shrink-0" /> Análise de "Bad Actors" (Ativos Críticos e Reincidência)
               </CardTitle>
               <CardDescription className="text-[11px]">
                 Posições funcionais com 2 ou mais falhas recorrentes no período selecionado
               </CardDescription>
             </div>
-            <div className="flex gap-1">
+            <div className="flex gap-1 shrink-0">
               {[7, 15, 30].map((d) => (
                 <Button
                   key={d}
@@ -425,5 +429,6 @@ export function Dashboards() {
         </div>
       </div>
     </div>
+  </div>
   )
 }

@@ -187,7 +187,7 @@ export function AppSidebar() {
 
 export function MobileTabBar() {
   return (
-    <nav className="h-12 border-t bg-card flex items-center justify-around md:hidden shrink-0 z-30">
+    <nav className="border-t bg-card/95 backdrop-blur-md flex items-center justify-around md:hidden shrink-0 z-30 pt-1 pb-[max(env(safe-area-inset-bottom),6px)] shadow-lg">
       {NAV_ITEMS.map((item) => {
         const Icon = item.icon
         return (
@@ -197,13 +197,27 @@ export function MobileTabBar() {
             end={item.end}
             className={({ isActive }) =>
               cn(
-                'flex flex-col items-center justify-center py-1 text-[10px] transition-colors',
-                isActive ? 'text-primary font-bold' : 'text-muted-foreground'
+                'flex flex-col items-center justify-center py-1 px-1.5 rounded-lg text-[10px] font-medium transition-all select-none min-w-[48px]',
+                isActive
+                  ? 'text-primary font-bold bg-primary/15 ring-1 ring-primary/30 shadow-2xs'
+                  : 'text-muted-foreground hover:text-foreground active:scale-95'
               )
             }
           >
-            <Icon className="size-4" />
-            <span className="truncate max-w-[60px] text-[9px]">{item.label.split(' ')[0]}</span>
+            <Icon className="size-4.5 mb-0.5" />
+            <span className="truncate max-w-[56px] text-[10px] leading-tight font-medium">
+              {item.label === 'Relatório Diário'
+                ? 'Diário'
+                : item.label === 'Explorador SAP'
+                ? 'Explorador'
+                : item.label === 'Confiabilidade'
+                ? 'Métricas'
+                : item.label === 'Gerador Executivo'
+                ? 'Relatórios'
+                : item.label === 'Documentos PDF'
+                ? 'PDFs'
+                : item.label}
+            </span>
           </NavLink>
         )
       })}
