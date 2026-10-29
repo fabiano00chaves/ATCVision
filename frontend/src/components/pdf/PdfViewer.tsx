@@ -6,8 +6,11 @@ import {
   AlertCircle,
   ChevronLeft,
   ChevronRight,
+  ExternalLink,
+  Eye,
   FileText,
   Loader2,
+  Maximize2,
   RefreshCw,
   RotateCw,
   Scaling,
@@ -16,10 +19,9 @@ import {
 } from 'lucide-react'
 import * as pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs'
 
-// 1. Direct in-memory fake worker handler (100% crash proof even if web workers are disabled or blocked)
+// In-memory fake worker registration
 if (typeof window !== 'undefined') {
   ;(window as any).pdfjsWorker = pdfjsWorker
-  // 2. Local self-hosted static worker (hash-free, same-origin, persistent across builds)
   if (!pdfjs.GlobalWorkerOptions.workerSrc) {
     pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
   }
@@ -50,19 +52,78 @@ export function PdfViewer({
   })
   const [rotation, setRotation] = useState<number>(0)
   const [loading, setLoading] = useState<boolean>(true)
+  const [fetchingBinary, setFetchingBinary] = useState<boolean>(true)
+  const [fetchError, setFetchError] = useState<string | null>(null)
   const [docLoadError, setDocLoadError] = useState<string | null>(null)
+  const [pdfData, setPdfData] = useState<ArrayBuffer | null>(null)
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null)
   const [reloadKey, setReloadKey] = useState<number>(0)
+  const [viewMode, setViewMode] = useState<'canvas' | 'native'>('canvas')
 
   const containerRef = useRef<HTMLDivElement>(null)
   const pageRefs = useRef<Record<number, HTMLDivElement | null>>({})
 
-  // Memoize file options with credentials to ensure session cookies are sent
-  const fileSource = useMemo(() => {
-    return {
-      url: `/api/v1/documents/${documentId}/file?v=${reloadKey}`,
-      withCredentials: true,
+  // 1. Fetch PDF Binary directly with native fetch and credentials
+  useEffect(() => {
+    let active = true
+    setFetchingBinary(true)
+    setFetchError(null)
+    setDocLoadError(null)
+    setLoading(true)
+    setNumPages(0)
+    pageRefs.current = {}
+
+    // Revoke previous blob URL to prevent memory leaks
+    if (pdfBlobUrl) {
+      try {
+        URL.revokeObjectURL(pdfBlobUrl)
+      } catch {}
+    }
+
+    const pdfFileUrl = `/api/v1/documents/${documentId}/file?v=${reloadKey}`
+
+    fetch(pdfFileUrl, { credentials: 'include' })
+      .then(async (res) => {
+        if (!res.ok) {
+          let detail = `Erro HTTP ${res.status}`
+          try {
+            const errJson = await res.json()
+            if (errJson && errJson.detail) {
+              detail = errJson.detail
+            }
+          } catch {}
+          throw new Error(detail)
+        }
+        return res.blob()
+      })
+      .then(async (blob) => {
+        if (!active) return
+        const blobUrl = URL.createObjectURL(blob)
+        setPdfBlobUrl(blobUrl)
+
+        const buffer = await blob.arrayBuffer()
+        if (!active) return
+        setPdfData(buffer)
+        setFetchingBinary(false)
+      })
+      .catch((err) => {
+        if (!active) return
+        console.error('Fetch PDF binary error:', err)
+        setFetchError(err.message || 'Falha ao descarregar PDF do servidor')
+        setFetchingBinary(false)
+        setLoading(false)
+      })
+
+    return () => {
+      active = false
     }
   }, [documentId, reloadKey])
+
+  // Memoize file input for react-pdf as binary data
+  const fileSource = useMemo(() => {
+    if (!pdfData) return null
+    return { data: pdfData }
+  }, [pdfData])
 
   // Fit scale dynamically to container width
   const fitToWidth = () => {
@@ -75,15 +136,6 @@ export function PdfViewer({
     const newScale = Math.min(2.5, Math.max(0.4, Number((availableW / firstPageW).toFixed(2))))
     setScale(newScale)
   }
-
-  // Reset all state when documentId changes
-  useEffect(() => {
-    setNumPages(0)
-    setCurrentPage(1)
-    setLoading(true)
-    setDocLoadError(null)
-    pageRefs.current = {}
-  }, [documentId])
 
   // Window resize handler for narrow/mobile screens
   useEffect(() => {
@@ -106,9 +158,9 @@ export function PdfViewer({
   }
 
   const onDocumentLoadError = (err: any) => {
-    console.error('PDF Load Error:', err)
+    console.error('PDF Document parse error:', err)
     setLoading(false)
-    setDocLoadError(err?.message || 'Erro ao carregar documento PDF')
+    setDocLoadError(err?.message || 'Erro ao processar as páginas do documento PDF')
   }
 
   const scrollToPage = (pageNumber: number, yOffset?: number) => {
@@ -157,16 +209,17 @@ export function PdfViewer({
   const spansMultiplePages = distinctPages.length > 1
 
   return (
-    <div className="flex flex-col h-full w-full bg-zinc-950/40 relative select-none">
+    <div className="flex flex-col h-full w-full bg-zinc-950/60 relative select-none">
       {/* Viewer Toolbar */}
-      <div className="h-9 border-b bg-card px-3 flex items-center justify-between z-10 shrink-0 text-xs shadow-2xs">
-        <div className="flex items-center gap-1.5">
+      <div className="h-9 border-b bg-card px-2 sm:px-3 flex items-center justify-between z-10 shrink-0 text-xs shadow-2xs">
+        {/* Page navigation controls */}
+        <div className="flex items-center gap-1">
           <Button
             variant="ghost"
             size="icon"
             className="h-6 w-6"
             onClick={() => scrollToPage(Math.max(currentPage - 1, 1))}
-            disabled={currentPage <= 1 || loading || numPages === 0}
+            disabled={currentPage <= 1 || loading || numPages === 0 || viewMode === 'native'}
           >
             <ChevronLeft className="size-3.5" />
           </Button>
@@ -182,71 +235,105 @@ export function PdfViewer({
             size="icon"
             className="h-6 w-6"
             onClick={() => scrollToPage(Math.min(currentPage + 1, numPages))}
-            disabled={currentPage >= numPages || loading || numPages === 0}
+            disabled={currentPage >= numPages || loading || numPages === 0 || viewMode === 'native'}
           >
             <ChevronRight className="size-3.5" />
           </Button>
         </div>
 
+        {/* View Mode Toggle & Zoom & Reload controls */}
         <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            onClick={fitToWidth}
-            title="Ajustar à largura da tela"
-          >
-            <Scaling className="size-3.5 text-primary" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            onClick={() => setScale((s) => Math.max(0.4, Number((s - 0.15).toFixed(2))))}
-            title="Reduzir Zoom (-)"
-          >
-            <ZoomOut className="size-3.5" />
-          </Button>
-          <span className="font-mono text-[11px] w-12 text-center text-muted-foreground select-none">
-            {Math.round(scale * 100)}%
-          </span>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            onClick={() => setScale((s) => Math.min(2.5, Number((s + 0.15).toFixed(2))))}
-            title="Aumentar Zoom (+)"
-          >
-            <ZoomIn className="size-3.5" />
-          </Button>
-          <div className="h-3 w-px bg-border mx-1" />
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            onClick={() => setRotation((r) => (r + 90) % 360)}
-            title="Girar 90°"
-          >
-            <RotateCw className="size-3.5" />
-          </Button>
+          {/* Native vs Interactive Toggle */}
+          {pdfBlobUrl && (
+            <Button
+              variant={viewMode === 'native' ? 'default' : 'outline'}
+              size="xs"
+              onClick={() => setViewMode((m) => (m === 'native' ? 'canvas' : 'native'))}
+              className="h-6 text-[10px] px-1.5 gap-1 font-semibold"
+              title={
+                viewMode === 'native'
+                  ? 'Voltar ao modo interativo com destaque de campos'
+                  : 'Abrir no leitor nativo do navegador'
+              }
+            >
+              <Eye className="size-3" />
+              <span>{viewMode === 'native' ? 'Destaque SAP' : 'Leitor Nativo'}</span>
+            </Button>
+          )}
+
+          {viewMode === 'canvas' && (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={fitToWidth}
+                title="Ajustar à largura da tela"
+              >
+                <Scaling className="size-3.5 text-primary" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={() => setScale((s) => Math.max(0.4, Number((s - 0.15).toFixed(2))))}
+                title="Reduzir Zoom (-)"
+              >
+                <ZoomOut className="size-3.5" />
+              </Button>
+              <span className="font-mono text-[11px] w-10 text-center text-muted-foreground select-none">
+                {Math.round(scale * 100)}%
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={() => setScale((s) => Math.min(2.5, Number((s + 0.15).toFixed(2))))}
+                title="Aumentar Zoom (+)"
+              >
+                <ZoomIn className="size-3.5" />
+              </Button>
+              <div className="h-3 w-px bg-border mx-0.5" />
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={() => setRotation((r) => (r + 90) % 360)}
+                title="Girar 90°"
+              >
+                <RotateCw className="size-3.5" />
+              </Button>
+            </>
+          )}
+
           <Button
             variant="ghost"
             size="icon"
             className="h-6 w-6"
             onClick={() => {
-              setLoading(true)
-              setDocLoadError(null)
               setReloadKey((k) => k + 1)
             }}
             title="Recarregar PDF"
           >
             <RefreshCw className="size-3.5" />
           </Button>
+
+          {pdfBlobUrl && (
+            <a
+              href={pdfBlobUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted"
+              title="Abrir PDF em nova aba"
+            >
+              <ExternalLink className="size-3.5" />
+            </a>
+          )}
         </div>
       </div>
 
       {/* Multi-page highlight helper alert */}
-      {spansMultiplePages && (
+      {viewMode === 'canvas' && spansMultiplePages && (
         <div className="bg-cyan-500/10 border-b border-cyan-500/20 px-3 py-1 flex items-center justify-between text-[11px] text-cyan-700 dark:text-cyan-300 z-10 shrink-0">
           <span>
             ℹ️ O campo destacado estende-se por{' '}
@@ -257,120 +344,163 @@ export function PdfViewer({
               const nextPage = distinctPages.find((p) => p > currentPage) || distinctPages[0]
               scrollToPage(nextPage)
             }}
-            className="underline font-semibold ml-2 hover:opacity-80"
+            className="underline font-semibold ml-2 hover:opacity-80 cursor-pointer"
           >
             Ver ➔
           </button>
         </div>
       )}
 
-      {/* PDF Scroll Area */}
-      <div
-        ref={containerRef}
-        className="flex-1 overflow-auto p-2 sm:p-4 flex flex-col items-center gap-3 sm:gap-4 relative touch-pan-x touch-pan-y"
-      >
-        <Document
-          key={`${documentId}_${reloadKey}`}
-          file={fileSource}
-          onLoadSuccess={onDocumentLoadSuccess}
-          onLoadError={onDocumentLoadError}
-          loading={
-            <div className="flex flex-col items-center justify-center p-12 text-muted-foreground">
-              <Loader2 className="size-8 animate-spin mb-3 text-primary" />
-              <p className="text-xs font-semibold text-foreground">Carregando relatório PDF SAP...</p>
-              <p className="text-[11px] text-muted-foreground mt-1">Renderizando páginas com alta definição</p>
+      {/* MAIN VIEWER AREA */}
+      <div className="flex-1 overflow-hidden relative flex flex-col">
+        {/* 1. Fetching Binary State */}
+        {fetchingBinary && (
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-muted-foreground">
+            <Loader2 className="size-8 animate-spin mb-3 text-primary" />
+            <p className="text-xs font-semibold text-foreground">Carregando relatório PDF SAP...</p>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Transferindo arquivo binário com segurança
+            </p>
+          </div>
+        )}
+
+        {/* 2. Fetch Binary Error State */}
+        {!fetchingBinary && fetchError && (
+          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center max-w-sm mx-auto my-auto">
+            <div className="size-12 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-600 mb-3">
+              <FileText className="size-6" />
             </div>
-          }
-          error={
-            <div className="p-8 text-center text-xs flex flex-col items-center justify-center max-w-sm mx-auto my-auto">
-              <div className="size-10 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-600 mb-2.5">
-                <FileText className="size-5" />
-              </div>
-              <p className="font-semibold text-foreground mb-1">Arquivo PDF Físico Indisponível</p>
-              <p className="text-muted-foreground text-[11px] leading-relaxed mb-3">
-                {docLoadError ||
-                  'O arquivo binário pode ter sido liberado do disco durante o saneamento para economia de armazenamento. Todos os dados estruturados e notas SAP continuam íntegros no sistema.'}
-              </p>
-              <Button
-                variant="outline"
-                size="xs"
-                onClick={() => {
-                  setLoading(true)
-                  setDocLoadError(null)
-                  setReloadKey((k) => k + 1)
-                }}
-                className="gap-1.5 text-xs font-semibold"
-              >
-                <RefreshCw className="size-3" />
-                <span>Tentar novamente</span>
-              </Button>
-            </div>
-          }
-        >
-          {!loading &&
-            numPages > 0 &&
-            Array.from(new Array(numPages), (_, index) => {
-              const pageNum = index + 1
-              const pageBBoxes = (bboxesToRender || []).filter((b) => b && b.page === pageNum)
-              const recordBBoxes = (activeMapping?.field_bboxes?.['record'] || []).filter(
-                (b) => b && b.page === pageNum
-              )
+            <p className="font-bold text-sm text-foreground mb-1">PDF Físico Não Disponível</p>
+            <p className="text-muted-foreground text-xs leading-relaxed mb-4">
+              {fetchError.includes('404')
+                ? 'O arquivo binário do PDF não foi localizado ou foi liberado para economia de espaço no servidor. Todos os dados da notificação e ordem SAP continuam preservados no sistema.'
+                : fetchError}
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setReloadKey((k) => k + 1)}
+              className="gap-1.5 text-xs font-semibold"
+            >
+              <RefreshCw className="size-3" />
+              <span>Tentar novamente</span>
+            </Button>
+          </div>
+        )}
 
-              return (
-                <div
-                  key={`doc_${documentId}_p_${pageNum}`}
-                  ref={(el) => {
-                    pageRefs.current[pageNum] = el
-                  }}
-                  className="relative shadow-md bg-white rounded-xs border border-border shrink-0"
-                >
-                  <Page
-                    pageNumber={pageNum}
-                    scale={scale}
-                    rotate={rotation}
-                    renderAnnotationLayer={false}
-                    renderTextLayer={false}
-                    error={
-                      <div className="p-4 text-center text-xs text-muted-foreground">
-                        Página {pageNum} indisponível
-                      </div>
-                    }
-                  />
+        {/* 3. NATIVE BROWSER EMBED VIEW (100% Guaranteed Native Chromium Engine) */}
+        {!fetchingBinary && !fetchError && pdfBlobUrl && viewMode === 'native' && (
+          <div className="h-full w-full bg-white flex flex-col">
+            <iframe
+              src={`${pdfBlobUrl}#page=${currentPage}`}
+              className="w-full h-full border-0"
+              title="Leitor Nativo PDF"
+            />
+          </div>
+        )}
 
-                  {/* Overlay Layer for Bounding Box Highlights */}
-                  <div className="absolute inset-0 pointer-events-none overflow-hidden">
-                    {/* Subtle border for the active occurrence record */}
-                    {recordBBoxes.map((bb, bbi) => (
-                      <div
-                        key={`rec_${bbi}`}
-                        className="absolute border border-primary/30 bg-primary/5 rounded-xs"
-                        style={{
-                          left: `${(bb.x0 || 0) * scale}px`,
-                          top: `${(bb.y0 || 0) * scale}px`,
-                          width: `${Math.max(0, ((bb.x1 || 0) - (bb.x0 || 0)) * scale)}px`,
-                          height: `${Math.max(0, ((bb.y1 || 0) - (bb.y0 || 0)) * scale)}px`,
-                        }}
-                      />
-                    ))}
-
-                    {/* Pulsing Glowing Box for Clicked Field */}
-                    {pageBBoxes.map((bb, bbi) => (
-                      <div
-                        key={`hl_${bbi}`}
-                        className="absolute border-2 border-cyan-400 bg-cyan-400/25 rounded-xs shadow-[0_0_12px_rgba(6,182,212,0.8)] animate-pulse"
-                        style={{
-                          left: `${(bb.x0 || 0) * scale - 2}px`,
-                          top: `${(bb.y0 || 0) * scale - 2}px`,
-                          width: `${Math.max(0, ((bb.x1 || 0) - (bb.x0 || 0)) * scale + 4)}px`,
-                          height: `${Math.max(0, ((bb.y1 || 0) - (bb.y0 || 0)) * scale + 4)}px`,
-                        }}
-                      />
-                    ))}
-                  </div>
+        {/* 4. INTERACTIVE CANVAS VIEW WITH SAP BOUNDING BOXES */}
+        {!fetchingBinary && !fetchError && fileSource && viewMode === 'canvas' && (
+          <div
+            ref={containerRef}
+            className="flex-1 overflow-auto p-2 sm:p-4 flex flex-col items-center gap-3 sm:gap-4 relative touch-pan-x touch-pan-y"
+          >
+            <Document
+              file={fileSource}
+              onLoadSuccess={onDocumentLoadSuccess}
+              onLoadError={onDocumentLoadError}
+              loading={
+                <div className="flex flex-col items-center justify-center p-12 text-muted-foreground">
+                  <Loader2 className="size-7 animate-spin mb-2 text-primary" />
+                  <p className="text-xs">Renderizando páginas com alta precisão...</p>
                 </div>
-              )
-            })}
-        </Document>
+              }
+              error={
+                <div className="p-8 text-center text-xs flex flex-col items-center justify-center max-w-sm mx-auto my-auto">
+                  <AlertCircle className="size-8 text-amber-500 mb-2" />
+                  <p className="font-semibold text-foreground mb-1">Visualização Interativa Indisponível</p>
+                  <p className="text-muted-foreground text-[11px] leading-relaxed mb-3">
+                    {docLoadError || 'O navegador não conseguiu renderizar via canvas.'}
+                  </p>
+                  {pdfBlobUrl && (
+                    <Button
+                      size="xs"
+                      onClick={() => setViewMode('native')}
+                      className="gap-1.5 text-xs font-semibold"
+                    >
+                      <Eye className="size-3" />
+                      <span>Abrir no Leitor Nativo do Navegador</span>
+                    </Button>
+                  )}
+                </div>
+              }
+            >
+              {!loading &&
+                numPages > 0 &&
+                Array.from(new Array(numPages), (_, index) => {
+                  const pageNum = index + 1
+                  const pageBBoxes = (bboxesToRender || []).filter((b) => b && b.page === pageNum)
+                  const recordBBoxes = (activeMapping?.field_bboxes?.['record'] || []).filter(
+                    (b) => b && b.page === pageNum
+                  )
+
+                  return (
+                    <div
+                      key={`doc_${documentId}_p_${pageNum}`}
+                      ref={(el) => {
+                        pageRefs.current[pageNum] = el
+                      }}
+                      className="relative shadow-md bg-white rounded-xs border border-border shrink-0"
+                    >
+                      <Page
+                        pageNumber={pageNum}
+                        scale={scale}
+                        rotate={rotation}
+                        renderAnnotationLayer={false}
+                        renderTextLayer={false}
+                        error={
+                          <div className="p-4 text-center text-xs text-muted-foreground">
+                            Página {pageNum} indisponível
+                          </div>
+                        }
+                      />
+
+                      {/* Overlay Layer for Bounding Box Highlights */}
+                      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                        {/* Subtle border for the active occurrence record */}
+                        {recordBBoxes.map((bb, bbi) => (
+                          <div
+                            key={`rec_${bbi}`}
+                            className="absolute border border-primary/30 bg-primary/5 rounded-xs"
+                            style={{
+                              left: `${(bb.x0 || 0) * scale}px`,
+                              top: `${(bb.y0 || 0) * scale}px`,
+                              width: `${Math.max(0, ((bb.x1 || 0) - (bb.x0 || 0)) * scale)}px`,
+                              height: `${Math.max(0, ((bb.y1 || 0) - (bb.y0 || 0)) * scale)}px`,
+                            }}
+                          />
+                        ))}
+
+                        {/* Pulsing Glowing Box for Clicked Field */}
+                        {pageBBoxes.map((bb, bbi) => (
+                          <div
+                            key={`hl_${bbi}`}
+                            className="absolute border-2 border-cyan-400 bg-cyan-400/25 rounded-xs shadow-[0_0_12px_rgba(6,182,212,0.8)] animate-pulse"
+                            style={{
+                              left: `${(bb.x0 || 0) * scale - 2}px`,
+                              top: `${(bb.y0 || 0) * scale - 2}px`,
+                              width: `${Math.max(0, ((bb.x1 || 0) - (bb.x0 || 0)) * scale + 4)}px`,
+                              height: `${Math.max(0, ((bb.y1 || 0) - (bb.y0 || 0)) * scale + 4)}px`,
+                            }}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })}
+            </Document>
+          </div>
+        )}
       </div>
     </div>
   )
