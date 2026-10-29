@@ -1,26 +1,27 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import type { BBox, FieldKey, Mapping } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import {
+  AlertCircle,
   ChevronLeft,
   ChevronRight,
   FileText,
   Loader2,
+  RefreshCw,
   RotateCw,
   Scaling,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
-import workerCode from 'pdfjs-dist/build/pdf.worker.min.mjs?raw'
+import * as pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs'
 
-// Instantiate worker via in-memory Blob URL (100% immune to network/MIME-type/CORS/Cloudflare errors)
-if (typeof window !== 'undefined' && !pdfjs.GlobalWorkerOptions.workerSrc) {
-  try {
-    const blob = new Blob([workerCode], { type: 'application/javascript' })
-    pdfjs.GlobalWorkerOptions.workerSrc = URL.createObjectURL(blob)
-  } catch (e) {
-    console.warn('Fallback workerSrc:', e)
+// 1. Direct in-memory fake worker handler (100% crash proof even if web workers are disabled or blocked)
+if (typeof window !== 'undefined') {
+  ;(window as any).pdfjsWorker = pdfjsWorker
+  // 2. Local self-hosted static worker (hash-free, same-origin, persistent across builds)
+  if (!pdfjs.GlobalWorkerOptions.workerSrc) {
+    pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
   }
 }
 
@@ -50,11 +51,18 @@ export function PdfViewer({
   const [rotation, setRotation] = useState<number>(0)
   const [loading, setLoading] = useState<boolean>(true)
   const [docLoadError, setDocLoadError] = useState<string | null>(null)
+  const [reloadKey, setReloadKey] = useState<number>(0)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const pageRefs = useRef<Record<number, HTMLDivElement | null>>({})
 
-  const pdfUrl = `/api/v1/documents/${documentId}/file`
+  // Memoize file options with credentials to ensure session cookies are sent
+  const fileSource = useMemo(() => {
+    return {
+      url: `/api/v1/documents/${documentId}/file?v=${reloadKey}`,
+      withCredentials: true,
+    }
+  }, [documentId, reloadKey])
 
   // Fit scale dynamically to container width
   const fitToWidth = () => {
@@ -92,7 +100,6 @@ export function PdfViewer({
     setNumPages(numPages)
     setLoading(false)
     setDocLoadError(null)
-    // Auto-fit to width on load if mobile or narrow pane
     setTimeout(() => {
       fitToWidth()
     }, 60)
@@ -150,7 +157,7 @@ export function PdfViewer({
   const spansMultiplePages = distinctPages.length > 1
 
   return (
-    <div className="flex flex-col h-full w-full bg-muted/30 relative select-none">
+    <div className="flex flex-col h-full w-full bg-zinc-950/40 relative select-none">
       {/* Viewer Toolbar */}
       <div className="h-9 border-b bg-card px-3 flex items-center justify-between z-10 shrink-0 text-xs shadow-2xs">
         <div className="flex items-center gap-1.5">
@@ -222,6 +229,19 @@ export function PdfViewer({
           >
             <RotateCw className="size-3.5" />
           </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={() => {
+              setLoading(true)
+              setDocLoadError(null)
+              setReloadKey((k) => k + 1)
+            }}
+            title="Recarregar PDF"
+          >
+            <RefreshCw className="size-3.5" />
+          </Button>
         </div>
       </div>
 
@@ -250,29 +270,40 @@ export function PdfViewer({
         className="flex-1 overflow-auto p-2 sm:p-4 flex flex-col items-center gap-3 sm:gap-4 relative touch-pan-x touch-pan-y"
       >
         <Document
-          key={documentId}
-          file={pdfUrl}
+          key={`${documentId}_${reloadKey}`}
+          file={fileSource}
           onLoadSuccess={onDocumentLoadSuccess}
           onLoadError={onDocumentLoadError}
           loading={
             <div className="flex flex-col items-center justify-center p-12 text-muted-foreground">
-              <Loader2 className="size-6 animate-spin mb-2 text-primary" />
-              <p className="text-xs">Carregando visualizador PDF...</p>
+              <Loader2 className="size-8 animate-spin mb-3 text-primary" />
+              <p className="text-xs font-semibold text-foreground">Carregando relatório PDF SAP...</p>
+              <p className="text-[11px] text-muted-foreground mt-1">Renderizando páginas com alta definição</p>
             </div>
           }
           error={
-            <div className="p-8 text-center text-xs flex flex-col items-center justify-center max-w-sm mx-auto">
+            <div className="p-8 text-center text-xs flex flex-col items-center justify-center max-w-sm mx-auto my-auto">
               <div className="size-10 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-600 mb-2.5">
                 <FileText className="size-5" />
               </div>
-              <p className="font-semibold text-foreground mb-1">Arquivo PDF Físico Não Disponível</p>
+              <p className="font-semibold text-foreground mb-1">Arquivo PDF Físico Indisponível</p>
               <p className="text-muted-foreground text-[11px] leading-relaxed mb-3">
                 {docLoadError ||
                   'O arquivo binário pode ter sido liberado do disco durante o saneamento para economia de armazenamento. Todos os dados estruturados e notas SAP continuam íntegros no sistema.'}
               </p>
-              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-muted text-[10px] text-muted-foreground font-mono">
-                <span>Visualização técnica estruturada ativa</span>
-              </div>
+              <Button
+                variant="outline"
+                size="xs"
+                onClick={() => {
+                  setLoading(true)
+                  setDocLoadError(null)
+                  setReloadKey((k) => k + 1)
+                }}
+                className="gap-1.5 text-xs font-semibold"
+              >
+                <RefreshCw className="size-3" />
+                <span>Tentar novamente</span>
+              </Button>
             </div>
           }
         >
@@ -287,11 +318,11 @@ export function PdfViewer({
 
               return (
                 <div
-                  key={`doc_${documentId}_page_${pageNum}`}
+                  key={`doc_${documentId}_p_${pageNum}`}
                   ref={(el) => {
                     pageRefs.current[pageNum] = el
                   }}
-                  className="relative shadow-md bg-white rounded-xs border border-border"
+                  className="relative shadow-md bg-white rounded-xs border border-border shrink-0"
                 >
                   <Page
                     pageNumber={pageNum}

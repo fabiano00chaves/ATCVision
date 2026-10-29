@@ -36,19 +36,17 @@ import {
   Maximize2,
   Minimize2,
   OctagonAlert,
-  PanelLeft,
-  Plus,
-  RotateCcw,
   Search,
   SlidersHorizontal,
   Sparkles,
   Star,
-  Wrench,
   X,
   Zap,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { QuickbarPresetSelect } from '@/components/filters/QuickbarPresetSelect'
+import { PresetEditorModal } from '@/components/presets/PresetEditorModal'
 
 export function DailyReport() {
   const {
@@ -68,52 +66,32 @@ export function DailyReport() {
   const [refDate, setRefDate] = useState<string>('')
   const [windowInfo, setWindowInfo] = useState<DailyWindow | null>(null)
 
-  // Document picker states
-  const [recentDocs, setRecentDocs] = useState<PdfDocument[]>([])
+  // Document selection for "Por PDF" mode
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([])
-  const [docPickerOpen, setDocPickerOpen] = useState<boolean>(false)
+  const [recentDocs, setRecentDocs] = useState<PdfDocument[]>([])
+  const [docPickerOpen, setDocPickerOpen] = useState(false)
 
-  // Presets and counts
+  // Active user filters
+  const [filters, setFilters] = useState<OccurrenceFilters>({})
   const [presets, setPresets] = useState<Preset[]>([])
   const [presetCounts, setPresetCounts] = useState<Record<string, number>>({})
-
-  // Quick Operational KPI metrics for the window
+  const [totalCountInWindow, setTotalCountInWindow] = useState<number>(0)
   const [kpis, setKpis] = useState<Kpis | null>(null)
-  const [kpisLoading, setKpisLoading] = useState(false)
+  const [editorOpen, setEditorOpen] = useState(false)
 
-  // Central filter state for all area & tag refinements
-  const [filters, setFilters] = useState<OccurrenceFilters>({})
-
-  // 1. Fetch Window info
-  const loadWindow = async () => {
+  // 1. Load Presets
+  const loadPresets = async () => {
     try {
-      const win = await dailyApi.window(mode, accumDays, refDate || undefined)
-      setWindowInfo(win)
-    } catch {
-      toast.error('Erro ao calcular janela operacional')
-    }
-  }
+      const list = await presetsApi.list()
+      const quick = list.filter((p) => p.show_in_quickbar)
+      setPresets(quick)
 
-  useEffect(() => {
-    loadWindow()
-  }, [mode, accumDays, refDate])
-
-  // 2. Fetch Presets and Recent Documents
-  const loadPresetsAndDocs = async () => {
-    try {
-      const [pList, docs] = await Promise.all([presetsApi.list(), documentsApi.list(15, 0)])
-      const quickPresets = pList.filter((p) => p.show_in_quickbar)
-      setPresets(quickPresets)
-      setRecentDocs(docs.items)
-
-      // Auto-apply persisted preferred preset on initial mount if filters are empty
-      const savedPresetId = localStorage.getItem(PREFERRED_PRESET_KEY)
-      if (savedPresetId) {
-        const found = pList.find((p) => p.id === savedPresetId)
+      // Auto-apply saved preferred preset if no filter active
+      const savedId = localStorage.getItem(PREFERRED_PRESET_KEY)
+      if (savedId && !filters.preset_id) {
+        const found = quick.find((p) => p.id === savedId)
         if (found) {
           setFilters((prev) => applyPresetToFilters(prev, found))
-        } else {
-          localStorage.removeItem(PREFERRED_PRESET_KEY)
         }
       }
     } catch {
@@ -122,139 +100,161 @@ export function DailyReport() {
   }
 
   useEffect(() => {
-    loadPresetsAndDocs()
+    loadPresets()
 
-    const onPresetsChanged = () => loadPresetsAndDocs()
+    const onPresetsChanged = () => loadPresets()
     window.addEventListener('atc:presets-changed', onPresetsChanged)
     return () => window.removeEventListener('atc:presets-changed', onPresetsChanged)
   }, [])
 
-  const handleModeChange = (newMode: DailyMode) => {
-    setMode(newMode)
-    localStorage.setItem('atc_daily_routine_mode', newMode)
-    setSelectedDocIds([])
-  }
-
-  const handlePresetToggle = (preset: Preset) => {
-    const isCurrentlyActive = filters.preset_id === preset.id
-    if (isCurrentlyActive) {
-      localStorage.removeItem(PREFERRED_PRESET_KEY)
-      setFilters((prev) => clearPresetFromFilters(prev))
-      toast.info('Foco rápido desativado')
-    } else {
-      localStorage.setItem(PREFERRED_PRESET_KEY, preset.id)
-      setFilters((prev) => applyPresetToFilters(prev, preset))
-      toast.success(`Foco rápido: ${preset.name}`, {
-        description: 'Filtro preferencial fixado e aplicado.',
+  // 2. Fetch recent PDF documents for "Por PDF" selector
+  useEffect(() => {
+    documentsApi
+      .list(30, 0)
+      .then((res) => {
+        setRecentDocs(res.items || [])
       })
+      .catch(() => {})
+  }, [])
+
+  // 3. Fetch real-time counts and KPIs for the active window or selected PDFs
+  useEffect(() => {
+    let active = true
+
+    async function fetchWindowAndCounts() {
+      try {
+        let win: DailyWindow | null = null
+        if (selectedDocIds.length === 0) {
+          win = await dailyApi.window(mode, accumDays, refDate || undefined)
+          if (!active) return
+          setWindowInfo(win)
+        } else {
+          setWindowInfo(null)
+        }
+
+        // Base window criteria
+        const baseCriteria: OccurrenceFilters = {}
+        if (selectedDocIds.length > 0) {
+          baseCriteria.document_ids = selectedDocIds
+        } else if (win) {
+          baseCriteria.start = win.start
+          baseCriteria.end = win.end
+        }
+
+        // Fetch overall KPI counts
+        dashboardsApi.kpis(baseCriteria).then((data) => {
+          if (active) setKpis(data)
+        }).catch(() => {})
+
+        // Total count in window
+        occurrencesApi.list(baseCriteria, 1).then((res) => {
+          if (active) setTotalCountInWindow(res.total)
+        }).catch(() => {})
+
+        // Real counts per preset
+        const countMap: Record<string, number> = {}
+        await Promise.all(
+          presets.map(async (p) => {
+            try {
+              const presetFilters = applyPresetToFilters(baseCriteria, p)
+              const res = await occurrencesApi.list(presetFilters, 1)
+              countMap[p.id] = res.total
+            } catch {
+              countMap[p.id] = 0
+            }
+          })
+        )
+        if (active) setPresetCounts(countMap)
+      } catch {
+        // Fallback
+      }
     }
+
+    fetchWindowAndCounts()
+    return () => {
+      active = false
+    }
+  }, [mode, accumDays, refDate, selectedDocIds, presets])
+
+  // Preset Handlers
+  const handlePresetSelect = (preset: Preset) => {
+    try {
+      localStorage.setItem(PREFERRED_PRESET_KEY, preset.id)
+    } catch {}
+    setFilters(applyPresetToFilters(filters, preset))
+    toast.success(`Foco rápido: ${preset.name}`, {
+      description: 'Filtro preferencial fixado e aplicado.',
+    })
   }
 
   const handleClearActivePreset = () => {
-    localStorage.removeItem(PREFERRED_PRESET_KEY)
-    setFilters((prev) => clearPresetFromFilters(prev))
+    try {
+      localStorage.removeItem(PREFERRED_PRESET_KEY)
+    } catch {}
+    setFilters(clearPresetFromFilters(filters))
     toast.info('Foco rápido desativado')
   }
 
-  const toggleMetricFilter = (key: 'only_pane' | 'only_jump' | 'only_relevant' | 'only_analyze') => {
+  // Toggle routine mode
+  const handleModeChange = (newMode: DailyMode) => {
+    setMode(newMode)
+    setSelectedDocIds([])
+    try {
+      localStorage.setItem('atc_daily_routine_mode', newMode)
+    } catch {}
+  }
+
+  const toggleDocSelection = (docId: string) => {
+    setSelectedDocIds((prev) => {
+      if (prev.includes(docId)) {
+        return prev.filter((id) => id !== docId)
+      }
+      return [...prev, docId]
+    })
+  }
+
+  const toggleMetricFilter = (key: 'only_pane' | 'only_jump' | 'only_relevant') => {
     setFilters((prev) => ({
       ...prev,
       [key]: prev[key] ? undefined : true,
     }))
   }
 
-  const isDocFiltered = selectedDocIds.length > 0
-  const isAllMode = mode === 'all'
-
-  const effectiveStart = isAllMode || isDocFiltered || !windowInfo?.start ? undefined : windowInfo.start
-  const effectiveEnd = isAllMode || isDocFiltered || !windowInfo?.end ? undefined : windowInfo.end
-
-  // 3. Fetch real-time counts and KPIs for the active window or selected PDFs
-  useEffect(() => {
-    if (!windowInfo && !isAllMode) return
-    const baseFilters: OccurrenceFilters = {
-      start: effectiveStart,
-      end: effectiveEnd,
-      document_ids: isDocFiltered ? selectedDocIds : undefined,
-    }
-
-    // Counts for presets
-    occurrencesApi
-      .counts(baseFilters)
-      .then((res) => {
-        const countsMap: Record<string, number> = {}
-        for (const item of res.presets) {
-          countsMap[item.preset_id] = item.count
-        }
-        setPresetCounts(countsMap)
-      })
-      .catch(() => {})
-
-    // KPIs for executive strip
-    setKpisLoading(true)
-    dashboardsApi
-      .kpis(baseFilters)
-      .then((kRes) => setKpis(kRes))
-      .catch(() => {})
-      .finally(() => setKpisLoading(false))
-  }, [windowInfo, selectedDocIds, mode, refDate, accumDays])
-
-  // Build combined filters for the embedded Occurrences component
+  // Merge Routine Window into Query Filters
   const computedFilters: OccurrenceFilters = {
     ...filters,
-    start: effectiveStart,
-    end: effectiveEnd,
-    document_ids: isDocFiltered ? selectedDocIds : undefined,
+  }
+
+  if (selectedDocIds.length > 0) {
+    computedFilters.document_ids = selectedDocIds
+    delete computedFilters.start
+    delete computedFilters.end
+  } else if (windowInfo) {
+    computedFilters.start = windowInfo.start
+    computedFilters.end = windowInfo.end
   }
 
   const activeFiltersCount = countActiveFilters(filters)
-
-  const toggleDocSelection = (id: string) => {
-    setSelectedDocIds((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
-    )
-  }
-
-  const getPresetIcon = (iconName?: string) => {
-    switch (iconName) {
-      case 'Zap':
-        return <Zap className="size-3" />
-      case 'Flame':
-        return <Flame className="size-3" />
-      case 'AlertTriangle':
-        return <AlertTriangle className="size-3" />
-      case 'OctagonAlert':
-        return <OctagonAlert className="size-3" />
-      case 'Search':
-        return <Search className="size-3" />
-      case 'Star':
-        return <Star className="size-3" />
-      default:
-        return <Filter className="size-3" />
-    }
-  }
-
-  const totalCountInWindow = kpis?.total ?? Object.values(presetCounts).reduce((a, b) => a + b, 0)
+  const isDocFiltered = selectedDocIds.length > 0
   const activePreset = presets.find((p) => p.id === filters.preset_id)
 
   return (
     <div className="flex h-full w-full overflow-hidden bg-background">
-      {/* ----------------- LEFT FILTER SIDEBAR (Customizable / Collapsible) ----------------- */}
+      {/* Left Collapsible Filter Sidebar (Area/Specialty/FunctionalLocation) */}
       <FilterSidebar
         filters={filters}
         onChange={setFilters}
         showPeriod={false}
       />
 
-      {/* ----------------- MAIN WORKSPACE COLUMN ----------------- */}
       <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
-        {/* Top Header Strip (Smart Collapsible) */}
-        <div className="bg-card border-b border-border/50 shrink-0 shadow-2xs select-none">
-          {/* ---------------- COLLAPSED MODE (Only 32px height) ---------------- */}
+        {/* ================= TOP COCKPIT (COLLAPSED vs STREAMLINED EXPANDED) ================= */}
+        <div className="border-b bg-card shrink-0 select-none transition-all">
           {headerCollapsed ? (
-            <div className="h-8 px-2 sm:px-3 flex items-center justify-between gap-2 text-xs">
-              <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5">
-                {/* Trigger Left Filter Sidebar */}
+            /* ---------------- MINIMAL COLLAPSED BAR (32px) ---------------- */
+            <div className="h-8 px-3 flex items-center justify-between text-xs gap-2">
+              <div className="flex items-center gap-2 overflow-x-auto scrollbar-none py-0.5">
+                {/* Filter Sidebar Toggle Button */}
                 <Button
                   variant="outline"
                   size="xs"
@@ -263,6 +263,7 @@ export function DailyReport() {
                     'h-6 px-2 text-[11px] font-semibold gap-1 shrink-0',
                     filterPanelMode === 'pinned' && 'bg-primary/10 border-primary/40 text-primary'
                   )}
+                  title="Abrir ou fixar filtros da área na esquerda (Ctrl+Shift+F)"
                 >
                   <SlidersHorizontal className="size-3 text-primary" />
                   <span>Filtros</span>
@@ -273,21 +274,22 @@ export function DailyReport() {
                   )}
                 </Button>
 
-                {/* Routine pill badge */}
-                <Badge variant="outline" className="text-[10px] font-medium shrink-0 h-5 px-1.5 bg-muted/30">
-                  <Calendar className="size-2.5 mr-1 text-primary" />
-                  {isDocFiltered ? `Filtrando ${selectedDocIds.length} PDF(s)` : windowInfo?.label?.split('—')[0]?.trim() || '24h'}
-                </Badge>
+                {/* Active Routine Badge */}
+                <span className="font-semibold text-foreground shrink-0 flex items-center gap-1.5 font-mono text-[11px]">
+                  <Calendar className="size-3 text-primary" />
+                  <span>
+                    {isDocFiltered ? `Filtrando ${selectedDocIds.length} PDF(s)` : windowInfo?.label?.split('—')[0]?.trim() || '24h'}
+                  </span>
+                </span>
 
-                {/* Active Preset Pill */}
+                {/* Active preset pill */}
                 {activePreset && (
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-primary text-primary-foreground text-[11px] font-bold shrink-0 shadow-2xs">
-                    {getPresetIcon(activePreset.icon)}
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary text-primary-foreground text-[10px] font-bold shrink-0 shadow-2xs">
                     <span>{activePreset.name}</span>
                     <button
                       type="button"
                       onClick={handleClearActivePreset}
-                      className="hover:bg-primary-foreground/20 rounded p-0.5"
+                      className="hover:bg-primary-foreground/20 rounded p-0.5 cursor-pointer"
                       title="Desativar foco"
                     >
                       <X className="size-2.5" />
@@ -295,25 +297,12 @@ export function DailyReport() {
                   </span>
                 )}
 
-                {/* Active PFs pills */}
-                {filters.fl_prefixes?.map((pf) => (
-                  <span
-                    key={pf}
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-muted text-[10px] font-mono text-foreground shrink-0 border"
-                  >
-                    <span>{pf}</span>
-                  </span>
-                ))}
-
-                {/* Quick KPI stats in collapsed mode */}
+                {/* KPI badges summary */}
                 {kpis && (
-                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground ml-1 shrink-0">
-                    <span>
-                      Total: <b className="text-foreground font-mono">{kpis.total}</b>
-                    </span>
+                  <div className="hidden md:flex items-center gap-1.5 text-[11px] text-muted-foreground shrink-0 ml-1">
                     {kpis.pane_count > 0 && (
-                      <span className="text-red-600 dark:text-red-400 font-semibold">
-                        • {kpis.pane_count} Panes ({Math.round(kpis.pane_total_min)}m)
+                      <span className="text-red-500 font-semibold">
+                        • {kpis.pane_count} Panes
                       </span>
                     )}
                     {kpis.jump_count > 0 && (
@@ -366,9 +355,9 @@ export function DailyReport() {
               </div>
             </div>
           ) : (
-            /* ---------------- EXPANDED COCKPIT (Streamlined 2 Rows) ---------------- */
+            /* ---------------- EXPANDED COCKPIT (Ultra-Clean Non-Wrapping Rows) ---------------- */
             <div className="p-2 space-y-2">
-              {/* Row 1: Routine Selector & Quick Search & Window Badge */}
+              {/* Row 1: Routine Selector & Date Reference & Sidebar Controls */}
               <div className="flex flex-wrap items-center justify-between gap-1.5">
                 {/* Window Mode Segmented Pills */}
                 <div className="flex items-center gap-1 overflow-x-auto pb-0.5 sm:pb-0 scrollbar-none w-full sm:w-auto">
@@ -448,7 +437,7 @@ export function DailyReport() {
                           {selectedDocIds.length > 0 && (
                             <button
                               onClick={() => setSelectedDocIds([])}
-                              className="text-[10px] text-primary hover:underline font-semibold"
+                              className="text-[10px] text-primary hover:underline font-semibold cursor-pointer"
                             >
                               Limpar Seleção
                             </button>
@@ -480,7 +469,7 @@ export function DailyReport() {
                   </div>
                 </div>
 
-                {/* Reference Date Picker & Active Window Badge */}
+                {/* Reference Date Picker & Active Window Badge & Header Toggle */}
                 <div className="flex items-center gap-1.5 shrink-0 ml-auto">
                   {mode !== 'all' && (
                     <div className="flex items-center gap-1.5">
@@ -529,7 +518,7 @@ export function DailyReport() {
                         variant="ghost"
                         size="xs"
                         onClick={toggleHeader}
-                        className="h-7 text-xs text-muted-foreground hover:text-foreground gap-1 px-1.5"
+                        className="h-7 text-xs text-muted-foreground hover:text-foreground gap-1 px-1.5 cursor-pointer"
                         title="Recolher topo para maximizar área de visualização (Ctrl+Shift+H)"
                       >
                         <ChevronUp className="size-3.5" />
@@ -543,75 +532,37 @@ export function DailyReport() {
                 </div>
               </div>
 
-              {/* Row 2: Search Input + Presets Row + KPI Snapshot */}
+              {/* Row 2: Search Input + Foco Rápido ListBox + KPI Snapshot (Fits on a Single Row!) */}
               <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-border/40">
-                {/* Keyword Search */}
-                <div className="relative min-w-[180px] max-w-xs flex-1">
-                  <Search className="absolute left-2.5 top-2 size-3.5 text-muted-foreground" />
-                  <Input
-                    value={filters.q || ''}
-                    onChange={(e) => setFilters({ ...filters, q: e.target.value || undefined })}
-                    placeholder="Buscar ocorrências nesta rotina..."
-                    className="pl-8 pr-7 h-7 text-xs bg-background"
-                  />
-                  {filters.q && (
-                    <button
-                      onClick={() => setFilters({ ...filters, q: undefined })}
-                      className="absolute right-2 top-1.5 text-muted-foreground hover:text-foreground"
-                    >
-                      <X className="size-3" />
-                    </button>
-                  )}
-                </div>
-
-                {/* Presets Pills */}
-                <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5 max-w-full">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground shrink-0 flex items-center gap-1 pr-1">
-                    <Sparkles className="size-3 text-primary" /> Foco Rápido:
-                  </span>
-
-                  {presets.map((preset) => {
-                    const count = presetCounts[preset.id] ?? 0
-                    const active = filters.preset_id === preset.id
-                    return (
+                <div className="flex items-center gap-2 flex-1 min-w-[240px] max-w-lg">
+                  {/* Keyword Search */}
+                  <div className="relative flex-1">
+                    <Search className="absolute left-2.5 top-2 size-3.5 text-muted-foreground" />
+                    <Input
+                      value={filters.q || ''}
+                      onChange={(e) => setFilters({ ...filters, q: e.target.value || undefined })}
+                      placeholder="Buscar ocorrências nesta rotina..."
+                      className="pl-8 pr-7 h-7 text-xs bg-background"
+                    />
+                    {filters.q && (
                       <button
-                        key={preset.id}
-                        type="button"
-                        onClick={() => handlePresetToggle(preset)}
-                        title={active ? 'Filtro preferencial fixado (clique para desativar)' : `Ativar foco: ${preset.name}`}
-                        className={cn(
-                          'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-semibold transition-all shrink-0 border cursor-pointer',
-                          active
-                            ? 'bg-primary text-primary-foreground border-primary font-bold shadow-xs'
-                            : 'bg-background hover:bg-muted text-foreground border-border/70'
-                        )}
+                        onClick={() => setFilters({ ...filters, q: undefined })}
+                        className="absolute right-2 top-1.5 text-muted-foreground hover:text-foreground cursor-pointer"
                       >
-                        {getPresetIcon(preset.icon)}
-                        <span>{preset.name}</span>
-                        {active && <Star className="size-2.5 fill-amber-300 text-amber-300 shrink-0" />}
-                        <span
-                          className={cn(
-                            'text-[9px] px-1 py-0.2 rounded-full font-bold font-mono',
-                            active ? 'bg-background/25 text-primary-foreground' : 'bg-muted text-foreground'
-                          )}
-                        >
-                          {count}
-                        </span>
+                        <X className="size-3" />
                       </button>
-                    )
-                  })}
+                    )}
+                  </div>
 
-                  {activePreset && (
-                    <Button
-                      size="xs"
-                      variant="ghost"
-                      onClick={handleClearActivePreset}
-                      className="text-[11px] text-muted-foreground hover:text-red-500 h-6 px-1.5 shrink-0"
-                      title="Desativar foco rápido"
-                    >
-                      <X className="size-3 mr-0.5" /> Limpar Foco
-                    </Button>
-                  )}
+                  {/* Foco Rápido Listbox Dropdown (Saves an entire horizontal line!) */}
+                  <QuickbarPresetSelect
+                    presets={presets}
+                    activePresetId={filters.preset_id}
+                    counts={presetCounts}
+                    onSelect={handlePresetSelect}
+                    onClear={handleClearActivePreset}
+                    onManage={() => setEditorOpen(true)}
+                  />
                 </div>
 
                 {/* KPI Quick Filter Badges */}
@@ -691,6 +642,12 @@ export function DailyReport() {
           />
         </div>
       </div>
+
+      <PresetEditorModal
+        open={editorOpen}
+        onOpenChange={setEditorOpen}
+        onSuccess={loadPresets}
+      />
     </div>
   )
 }
