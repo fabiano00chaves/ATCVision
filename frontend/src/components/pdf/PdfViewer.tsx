@@ -163,7 +163,7 @@ export function PdfViewer({
     setDocLoadError(err?.message || 'Erro ao processar as páginas do documento PDF')
   }
 
-  const scrollToPage = (pageNumber: number, yOffset?: number) => {
+  const scrollToPage = (pageNumber: number, yOffset?: number, attempt = 0) => {
     if (pageNumber < 1 || (numPages > 0 && pageNumber > numPages)) return
     const el = pageRefs.current[pageNumber]
     if (el && containerRef.current) {
@@ -178,29 +178,41 @@ export function PdfViewer({
       }
       setCurrentPage(pageNumber)
       if (onPageChange) onPageChange(pageNumber)
+    } else if (attempt < 8) {
+      setTimeout(() => scrollToPage(pageNumber, yOffset, attempt + 1), 60)
     }
   }
+
+  // Determine target bboxes to render and highlight
+  const targetBBoxes = useMemo(() => {
+    if (highlightBBoxes && highlightBBoxes.length > 0) {
+      return highlightBBoxes
+    }
+    if (highlightFieldKey && activeMapping?.field_bboxes?.[highlightFieldKey]) {
+      return activeMapping.field_bboxes[highlightFieldKey] || []
+    }
+    return []
+  }, [highlightBBoxes, highlightFieldKey, activeMapping])
 
   // Smooth scroll to highlighted bbox or occurrence start page
   useEffect(() => {
     if (loading || numPages === 0) return
-    if (highlightBBoxes && highlightBBoxes.length > 0) {
-      const targetPage = highlightBBoxes[0].page
+
+    if (targetBBoxes && targetBBoxes.length > 0) {
+      const targetPage = targetBBoxes[0].page
       if (targetPage && targetPage <= numPages) {
-        scrollToPage(targetPage, highlightBBoxes[0].y0)
+        // If in native mode, automatically switch to canvas so user sees the glowing bounding box
+        if (viewMode === 'native') {
+          setViewMode('canvas')
+        }
+        scrollToPage(targetPage, targetBBoxes[0].y0)
       }
     } else if (activeMapping?.start_page && activeMapping.start_page <= numPages) {
       scrollToPage(activeMapping.start_page)
     }
-  }, [highlightBBoxes, activeMapping, loading, numPages])
+  }, [targetBBoxes, activeMapping, loading, numPages])
 
-  // Determine which bboxes to draw
-  let bboxesToRender: BBox[] = []
-  if (highlightBBoxes && highlightBBoxes.length > 0) {
-    bboxesToRender = highlightBBoxes
-  } else if (highlightFieldKey && activeMapping?.field_bboxes?.[highlightFieldKey]) {
-    bboxesToRender = activeMapping.field_bboxes[highlightFieldKey] || []
-  }
+  const bboxesToRender = targetBBoxes
 
   // Check if highlighted field spans multiple pages
   const distinctPages = Array.from(

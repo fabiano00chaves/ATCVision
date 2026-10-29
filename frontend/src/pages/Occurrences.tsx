@@ -149,9 +149,11 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
             setActiveMapping(data.mappings[0])
             const recBBoxes = data.mappings[0].field_bboxes?.['record'] || []
             setHighlightBBoxes(recBBoxes)
+            setHighlightFieldKey(null)
           } else {
             setActiveMapping(null)
             setHighlightBBoxes([])
+            setHighlightFieldKey(null)
           }
         }
       })
@@ -265,8 +267,10 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
   // Click-to-highlight field in PDF
   const handleHighlightField = (key: FieldKey) => {
     setHighlightFieldKey(key)
-    if (activeMapping && activeMapping.field_bboxes?.[key]) {
-      setHighlightBBoxes(activeMapping.field_bboxes[key] || [])
+    const bboxes = activeMapping?.field_bboxes?.[key] || []
+    setHighlightBBoxes(bboxes)
+    if (layoutMode === 'list' && !isMobile) {
+      setLayoutMode('split')
     }
     if (isMobile) {
       setMobileViewTab('pdf')

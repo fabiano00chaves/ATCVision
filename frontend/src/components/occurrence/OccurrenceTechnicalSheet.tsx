@@ -235,33 +235,53 @@ export function OccurrenceTechnicalSheet({
           {/* Order / Notification Chips */}
           <div className="flex items-center gap-1.5 flex-wrap">
             {o.numero_ordem && (
-              <button
-                onClick={() => handleCopy(o.numero_ordem!, 'Ordem')}
-                title="Clique para copiar a Ordem"
-                className="inline-flex items-center gap-1 font-mono text-xs font-bold px-2 py-0.5 rounded bg-muted hover:bg-muted/80 text-foreground border border-border transition-colors cursor-pointer"
+              <div
+                onClick={() => onHighlightField?.('numero_ordem')}
+                title="Clique para localizar a Ordem no PDF"
+                className="inline-flex items-center gap-1 font-mono text-xs font-bold px-2 py-0.5 rounded bg-muted hover:bg-muted/80 hover:border-primary/60 text-foreground border border-border transition-colors cursor-pointer group"
               >
                 <span>Ordem {o.numero_ordem}</span>
-                {copiedItem === 'Ordem' ? (
-                  <Check className="size-3 text-emerald-500" />
-                ) : (
-                  <Copy className="size-3 text-muted-foreground" />
-                )}
-              </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleCopy(o.numero_ordem!, 'Ordem')
+                  }}
+                  title="Copiar Ordem"
+                  className="p-0.5 hover:text-foreground text-muted-foreground transition-colors cursor-pointer"
+                >
+                  {copiedItem === 'Ordem' ? (
+                    <Check className="size-3 text-emerald-500" />
+                  ) : (
+                    <Copy className="size-3" />
+                  )}
+                </button>
+              </div>
             )}
 
             {o.numero_nota && (
-              <button
-                onClick={() => handleCopy(o.numero_nota!, 'Nota')}
-                title="Clique para copiar a Nota"
-                className="inline-flex items-center gap-1 font-mono text-xs font-bold px-2 py-0.5 rounded bg-muted hover:bg-muted/80 text-foreground border border-border transition-colors cursor-pointer"
+              <div
+                onClick={() => onHighlightField?.('numero_nota')}
+                title="Clique para localizar a Nota no PDF"
+                className="inline-flex items-center gap-1 font-mono text-xs font-bold px-2 py-0.5 rounded bg-muted hover:bg-muted/80 hover:border-primary/60 text-foreground border border-border transition-colors cursor-pointer group"
               >
                 <span>Nota {o.numero_nota}</span>
-                {copiedItem === 'Nota' ? (
-                  <Check className="size-3 text-emerald-500" />
-                ) : (
-                  <Copy className="size-3 text-muted-foreground" />
-                )}
-              </button>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleCopy(o.numero_nota!, 'Nota')
+                  }}
+                  title="Copiar Nota"
+                  className="p-0.5 hover:text-foreground text-muted-foreground transition-colors cursor-pointer"
+                >
+                  {copiedItem === 'Nota' ? (
+                    <Check className="size-3 text-emerald-500" />
+                  ) : (
+                    <Copy className="size-3" />
+                  )}
+                </button>
+              </div>
             )}
 
             <Badge variant="outline" className="font-medium">
@@ -298,8 +318,17 @@ export function OccurrenceTechnicalSheet({
         </div>
 
         {/* Title */}
-        <h2 className="text-sm sm:text-base font-bold text-foreground leading-snug">
-          {o.titulo}
+        <h2
+          onClick={() => onHighlightField?.('titulo')}
+          title="Clique para localizar o título no PDF"
+          className="text-sm sm:text-base font-bold text-foreground leading-snug cursor-pointer hover:text-primary transition-colors flex items-center justify-between group"
+        >
+          <span>{o.titulo}</span>
+          {onHighlightField && (
+            <span className="text-[10px] text-primary opacity-0 group-hover:opacity-100 transition-opacity font-normal flex items-center gap-1 shrink-0 ml-2">
+              <Eye className="size-3" /> Ver no PDF
+            </span>
+          )}
         </h2>
 
         {/* Triage & Operational Action Controls */}
@@ -397,24 +426,25 @@ export function OccurrenceTechnicalSheet({
 
       {/* ---------------- 2. FIELD: POSIÇÃO FUNCIONAL & ATIVO ---------------- */}
       {config.posicao_funcional !== 'hidden' && (
-        <div className="border rounded-xl bg-card shadow-2xs overflow-hidden transition-all">
-          <div
-            onClick={() => toggleSection('posicao_funcional')}
-            className="p-3 sm:p-3.5 flex items-center justify-between text-muted-foreground hover:bg-muted/20 cursor-pointer select-none"
-          >
-            <div className="flex items-center gap-2 truncate">
+        <div className="border rounded-xl bg-card shadow-2xs overflow-hidden transition-all hover:border-primary/50">
+          <div className="p-3 sm:p-3.5 flex items-center justify-between text-muted-foreground bg-muted/10 border-b border-border/40 select-none">
+            <div
+              onClick={() => onHighlightField?.('posicao_funcional')}
+              className="flex items-center gap-2 truncate cursor-pointer hover:text-primary transition-colors flex-1 py-0.5"
+              title="Clique para localizar a Posição Funcional no PDF"
+            >
               <span className="font-semibold text-foreground flex items-center gap-1.5">
                 <Wrench className="size-3.5 text-primary" /> Posição Funcional & Ativo
               </span>
               {config.posicao_funcional === 'collapsed' && (
-                <span className="font-mono text-xs font-bold text-primary truncate max-w-[200px] sm:max-w-xs">
+                <span className="font-mono text-xs font-bold text-primary truncate max-w-[200px] sm:max-w-xs ml-1">
                   {o.posicao_funcional || '(Não informada)'}
                 </span>
               )}
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              {config.posicao_funcional === 'expanded' && onHighlightField && (
+              {onHighlightField && (
                 <button
                   type="button"
                   onClick={(e) => {
@@ -422,38 +452,62 @@ export function OccurrenceTechnicalSheet({
                     onHighlightField('posicao_funcional')
                   }}
                   className="text-[11px] text-primary flex items-center gap-1 font-medium hover:underline cursor-pointer"
+                  title="Destacar no PDF"
                 >
                   <Eye className="size-3" /> Ver no PDF
                 </button>
               )}
-              <div className="text-muted-foreground">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  toggleSection('posicao_funcional')
+                }}
+                className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+                title={config.posicao_funcional === 'expanded' ? 'Recolher campo' : 'Expandir campo'}
+              >
                 {config.posicao_funcional === 'expanded' ? (
                   <ChevronUp className="size-3.5" />
                 ) : (
                   <ChevronDown className="size-3.5" />
                 )}
-              </div>
+              </button>
             </div>
           </div>
 
           {config.posicao_funcional === 'expanded' && (
-            <div className="p-3 pt-0 sm:p-4 sm:pt-0 space-y-2 border-t border-border/40">
-              <div className="flex items-center gap-2 pt-2">
-                <span className="font-mono text-sm sm:text-base font-bold text-primary">
-                  {o.posicao_funcional || '(Não informada)'}
-                </span>
-                {o.posicao_funcional && (
-                  <button
-                    onClick={() => handleCopy(o.posicao_funcional!, 'Tag')}
-                    className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer"
-                    title="Copiar Tag"
-                  >
-                    {copiedItem === 'Tag' ? (
-                      <Check className="size-3.5 text-emerald-500" />
-                    ) : (
-                      <Copy className="size-3.5" />
-                    )}
-                  </button>
+            <div
+              onClick={() => onHighlightField?.('posicao_funcional')}
+              className="p-3 pt-3 sm:p-4 sm:pt-3 space-y-2 cursor-pointer hover:bg-muted/15 transition-colors group/body"
+              title="Clique no texto para destacar no PDF"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-sm sm:text-base font-bold text-primary">
+                    {o.posicao_funcional || '(Não informada)'}
+                  </span>
+                  {o.posicao_funcional && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleCopy(o.posicao_funcional!, 'Tag')
+                      }}
+                      className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer"
+                      title="Copiar Tag"
+                    >
+                      {copiedItem === 'Tag' ? (
+                        <Check className="size-3.5 text-emerald-500" />
+                      ) : (
+                        <Copy className="size-3.5" />
+                      )}
+                    </button>
+                  )}
+                </div>
+                {onHighlightField && (
+                  <span className="text-[11px] text-primary opacity-0 group-hover/body:opacity-100 transition-opacity flex items-center gap-1 shrink-0 font-medium">
+                    <Eye className="size-3" /> Destacar no PDF
+                  </span>
                 )}
               </div>
               {o.descricao_posicao_funcional && (
@@ -473,12 +527,13 @@ export function OccurrenceTechnicalSheet({
 
       {/* ---------------- 3. FIELD: PANE E DADOS OPERACIONAIS ---------------- */}
       {config.dados_operacionais !== 'hidden' && (
-        <div className="border rounded-xl bg-card shadow-2xs overflow-hidden transition-all">
-          <div
-            onClick={() => toggleSection('dados_operacionais')}
-            className="p-3 sm:p-3.5 flex items-center justify-between text-muted-foreground hover:bg-muted/20 cursor-pointer select-none"
-          >
-            <div className="flex items-center gap-2 truncate">
+        <div className="border rounded-xl bg-card shadow-2xs overflow-hidden transition-all hover:border-primary/50">
+          <div className="p-3 sm:p-3.5 flex items-center justify-between text-muted-foreground bg-muted/10 border-b border-border/40 select-none">
+            <div
+              onClick={() => onHighlightField?.('pane')}
+              className="flex items-center gap-2 truncate cursor-pointer hover:text-primary transition-colors flex-1 py-0.5"
+              title="Clique para localizar no PDF"
+            >
               <span className="font-semibold text-foreground flex items-center gap-1.5">
                 <OctagonAlert
                   className={cn('size-3.5', o.teve_pane ? 'text-red-500' : 'text-muted-foreground')}
@@ -486,7 +541,7 @@ export function OccurrenceTechnicalSheet({
                 Dados Operacionais & Pane
               </span>
               {config.dados_operacionais === 'collapsed' && (
-                <span className="text-[11px] text-muted-foreground truncate hidden sm:inline">
+                <span className="text-[11px] text-muted-foreground truncate hidden sm:inline ml-1">
                   • Pane: <b className={o.teve_pane ? 'text-red-500' : ''}>{o.teve_pane ? 'SIM' : 'NÃO'}</b>
                   {o.turno && ` • Turno ${o.turno}`}
                   {o.especialidade && ` • ${o.especialidade}`}
@@ -495,7 +550,7 @@ export function OccurrenceTechnicalSheet({
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              {config.dados_operacionais === 'expanded' && onHighlightField && (
+              {onHighlightField && (
                 <button
                   type="button"
                   onClick={(e) => {
@@ -503,42 +558,83 @@ export function OccurrenceTechnicalSheet({
                     onHighlightField('pane')
                   }}
                   className="text-[11px] text-primary flex items-center gap-1 font-medium hover:underline cursor-pointer"
+                  title="Destacar no PDF"
                 >
                   <Eye className="size-3" /> Ver no PDF
                 </button>
               )}
-              <div className="text-muted-foreground">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  toggleSection('dados_operacionais')
+                }}
+                className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+                title={config.dados_operacionais === 'expanded' ? 'Recolher campo' : 'Expandir campo'}
+              >
                 {config.dados_operacionais === 'expanded' ? (
                   <ChevronUp className="size-3.5" />
                 ) : (
                   <ChevronDown className="size-3.5" />
                 )}
-              </div>
+              </button>
             </div>
           </div>
 
           {config.dados_operacionais === 'expanded' && (
-            <div className="p-3 pt-0 sm:p-4 sm:pt-0 border-t border-border/40">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs pt-2">
-                <div className="p-2 rounded-lg bg-muted/30">
+            <div
+              onClick={() => onHighlightField?.('pane')}
+              className="p-3 sm:p-4 cursor-pointer hover:bg-muted/15 transition-colors group/body"
+              title="Clique para destacar no PDF"
+            >
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
+                <div
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onHighlightField?.('pane')
+                  }}
+                  className="p-2 rounded-lg bg-muted/30 hover:border-primary/60 border border-transparent transition-colors cursor-pointer"
+                  title="Clique para destacar Pane no PDF"
+                >
                   <span className="text-[11px] text-muted-foreground block">Houve Pane:</span>
                   <p className={cn('font-bold mt-0.5', o.teve_pane ? 'text-red-600 dark:text-red-400' : 'text-foreground')}>
                     {o.teve_pane ? `SIM (${Math.round(o.duracao_pane_min)} min)` : 'NÃO'}
                   </p>
                 </div>
-                <div className="p-2 rounded-lg bg-muted/30">
+                <div
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onHighlightField?.('avaria') || onHighlightField?.('pane')
+                  }}
+                  className="p-2 rounded-lg bg-muted/30 hover:border-primary/60 border border-transparent transition-colors cursor-pointer"
+                  title="Clique para destacar Avaria no PDF"
+                >
                   <span className="text-[11px] text-muted-foreground block">Duração Avaria:</span>
                   <p className="font-bold text-foreground mt-0.5">
                     {o.duracao_avaria_min ? `${Math.round(o.duracao_avaria_min)} min` : '-'}
                   </p>
                 </div>
-                <div className="p-2 rounded-lg bg-muted/30">
+                <div
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onHighlightField?.('turno')
+                  }}
+                  className="p-2 rounded-lg bg-muted/30 hover:border-primary/60 border border-transparent transition-colors cursor-pointer"
+                  title="Clique para destacar Turno no PDF"
+                >
                   <span className="text-[11px] text-muted-foreground block">Turno:</span>
                   <p className="font-bold text-foreground mt-0.5">
                     {o.turno ? `Turno ${o.turno}` : '-'}
                   </p>
                 </div>
-                <div className="p-2 rounded-lg bg-muted/30">
+                <div
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onHighlightField?.('record')
+                  }}
+                  className="p-2 rounded-lg bg-muted/30 hover:border-primary/60 border border-transparent transition-colors cursor-pointer"
+                  title="Clique para destacar Registro no PDF"
+                >
                   <span className="text-[11px] text-muted-foreground block">Especialidade:</span>
                   <p className="font-bold text-foreground mt-0.5">
                     {o.especialidade}
@@ -552,24 +648,25 @@ export function OccurrenceTechnicalSheet({
 
       {/* ---------------- 4. FIELD: MODO DE FALHA SAP ---------------- */}
       {config.modo_falha !== 'hidden' && (o.defeito || o.causa) && (
-        <div className="border rounded-xl bg-card shadow-2xs overflow-hidden transition-all">
-          <div
-            onClick={() => toggleSection('modo_falha')}
-            className="p-3 sm:p-3.5 flex items-center justify-between text-muted-foreground hover:bg-muted/20 cursor-pointer select-none"
-          >
-            <div className="flex items-center gap-2 truncate">
+        <div className="border rounded-xl bg-card shadow-2xs overflow-hidden transition-all hover:border-primary/50">
+          <div className="p-3 sm:p-3.5 flex items-center justify-between text-muted-foreground bg-muted/10 border-b border-border/40 select-none">
+            <div
+              onClick={() => onHighlightField?.('defeito')}
+              className="flex items-center gap-2 truncate cursor-pointer hover:text-primary transition-colors flex-1 py-0.5"
+              title="Clique para localizar o Modo de Falha no PDF"
+            >
               <span className="font-semibold text-foreground flex items-center gap-1.5">
                 <Zap className="size-3.5 text-amber-500" /> Modo de Falha SAP
               </span>
               {config.modo_falha === 'collapsed' && (
-                <span className="text-[11px] text-muted-foreground truncate hidden sm:inline">
+                <span className="text-[11px] text-muted-foreground truncate hidden sm:inline ml-1">
                   • {o.defeito || o.causa}
                 </span>
               )}
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              {config.modo_falha === 'expanded' && onHighlightField && (
+              {onHighlightField && (
                 <button
                   type="button"
                   onClick={(e) => {
@@ -577,28 +674,55 @@ export function OccurrenceTechnicalSheet({
                     onHighlightField('defeito')
                   }}
                   className="text-[11px] text-primary flex items-center gap-1 font-medium hover:underline cursor-pointer"
+                  title="Destacar no PDF"
                 >
                   <Eye className="size-3" /> Ver no PDF
                 </button>
               )}
-              <div className="text-muted-foreground">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  toggleSection('modo_falha')
+                }}
+                className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+                title={config.modo_falha === 'expanded' ? 'Recolher campo' : 'Expandir campo'}
+              >
                 {config.modo_falha === 'expanded' ? (
                   <ChevronUp className="size-3.5" />
                 ) : (
                   <ChevronDown className="size-3.5" />
                 )}
-              </div>
+              </button>
             </div>
           </div>
 
           {config.modo_falha === 'expanded' && (
-            <div className="p-3 pt-0 sm:p-4 sm:pt-0 border-t border-border/40">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs pt-2">
-                <div className="p-2.5 rounded-lg bg-muted/20 border border-border/40">
+            <div
+              onClick={() => onHighlightField?.('defeito')}
+              className="p-3 sm:p-4 cursor-pointer hover:bg-muted/15 transition-colors group/body"
+              title="Clique para destacar no PDF"
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onHighlightField?.('defeito')
+                  }}
+                  className="p-2.5 rounded-lg bg-muted/20 border border-border/40 hover:border-primary/60 transition-colors cursor-pointer"
+                  title="Clique para destacar Defeito no PDF"
+                >
                   <span className="text-[11px] text-muted-foreground font-semibold block">Defeito:</span>
                   <p className="font-medium text-foreground mt-0.5">{o.defeito || '-'}</p>
                 </div>
-                <div className="p-2.5 rounded-lg bg-muted/20 border border-border/40">
+                <div
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onHighlightField?.('causa')
+                  }}
+                  className="p-2.5 rounded-lg bg-muted/20 border border-border/40 hover:border-primary/60 transition-colors cursor-pointer"
+                  title="Clique para destacar Causa no PDF"
+                >
                   <span className="text-[11px] text-muted-foreground font-semibold block">Causa Raiz:</span>
                   <p className="font-medium text-foreground mt-0.5">{o.causa || '-'}</p>
                 </div>
@@ -610,24 +734,25 @@ export function OccurrenceTechnicalSheet({
 
       {/* ---------------- 5. FIELD: DESCRIÇÃO DA NOTIFICAÇÃO ---------------- */}
       {config.descricao_notificacao !== 'hidden' && o.descricao_longa_notificacao && (
-        <div className="border rounded-xl bg-card shadow-2xs overflow-hidden transition-all">
-          <div
-            onClick={() => toggleSection('descricao_notificacao')}
-            className="p-3 sm:p-3.5 flex items-center justify-between text-muted-foreground hover:bg-muted/20 cursor-pointer select-none"
-          >
-            <div className="flex items-center gap-2 truncate">
+        <div className="border rounded-xl bg-card shadow-2xs overflow-hidden transition-all hover:border-primary/50">
+          <div className="p-3 sm:p-3.5 flex items-center justify-between text-muted-foreground bg-muted/10 border-b border-border/40 select-none">
+            <div
+              onClick={() => onHighlightField?.('descricao_longa_notificacao')}
+              className="flex items-center gap-2 truncate cursor-pointer hover:text-primary transition-colors flex-1 py-0.5"
+              title="Clique para localizar a Descrição da Notificação no PDF"
+            >
               <span className="font-semibold text-foreground flex items-center gap-1.5">
                 <FileText className="size-3.5 text-primary" /> Descrição da Notificação
               </span>
               {config.descricao_notificacao === 'collapsed' && (
-                <span className="text-[11px] text-muted-foreground truncate font-mono max-w-[260px] hidden sm:inline">
+                <span className="text-[11px] text-muted-foreground truncate font-mono max-w-[260px] hidden sm:inline ml-1">
                   — {o.descricao_longa_notificacao.slice(0, 70)}...
                 </span>
               )}
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              {config.descricao_notificacao === 'expanded' && onHighlightField && (
+              {onHighlightField && (
                 <button
                   type="button"
                   onClick={(e) => {
@@ -635,23 +760,44 @@ export function OccurrenceTechnicalSheet({
                     onHighlightField('descricao_longa_notificacao')
                   }}
                   className="text-[11px] text-primary flex items-center gap-1 font-medium hover:underline cursor-pointer"
+                  title="Destacar no PDF"
                 >
                   <Eye className="size-3" /> Ver no PDF
                 </button>
               )}
-              <div className="text-muted-foreground">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  toggleSection('descricao_notificacao')
+                }}
+                className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+                title={config.descricao_notificacao === 'expanded' ? 'Recolher campo' : 'Expandir campo'}
+              >
                 {config.descricao_notificacao === 'expanded' ? (
                   <ChevronUp className="size-3.5" />
                 ) : (
                   <ChevronDown className="size-3.5" />
                 )}
-              </div>
+              </button>
             </div>
           </div>
 
           {config.descricao_notificacao === 'expanded' && (
-            <div className="p-3 pt-0 sm:p-4 sm:pt-0 border-t border-border/40">
-              <p className="text-foreground leading-relaxed whitespace-pre-line bg-muted/30 p-3 rounded-lg border border-border/40 font-mono text-[11px] mt-2">
+            <div
+              onClick={() => onHighlightField?.('descricao_longa_notificacao')}
+              className="p-3 sm:p-4 cursor-pointer hover:bg-muted/15 transition-colors group/desc"
+              title="Clique no texto para destacar no PDF"
+            >
+              <div className="flex items-center justify-between text-[11px] text-muted-foreground pb-1">
+                <span className="font-medium text-foreground">Texto extraído do documento:</span>
+                {onHighlightField && (
+                  <span className="text-primary text-[11px] font-semibold flex items-center gap-1 opacity-70 group-hover/desc:opacity-100 transition-opacity">
+                    <Eye className="size-3" /> Destacar no PDF
+                  </span>
+                )}
+              </div>
+              <p className="text-foreground leading-relaxed whitespace-pre-line bg-muted/30 group-hover/desc:bg-muted/50 p-3 rounded-lg border border-border/40 group-hover/desc:border-primary/50 font-mono text-[11px] mt-1 transition-colors">
                 {o.descricao_longa_notificacao}
               </p>
             </div>
@@ -661,24 +807,25 @@ export function OccurrenceTechnicalSheet({
 
       {/* ---------------- 6. FIELD: DESCRIÇÃO DA ORDEM ---------------- */}
       {config.descricao_ordem !== 'hidden' && o.descricao_longa_ordem && (
-        <div className="border rounded-xl bg-card shadow-2xs overflow-hidden transition-all">
-          <div
-            onClick={() => toggleSection('descricao_ordem')}
-            className="p-3 sm:p-3.5 flex items-center justify-between text-muted-foreground hover:bg-muted/20 cursor-pointer select-none"
-          >
-            <div className="flex items-center gap-2 truncate">
+        <div className="border rounded-xl bg-card shadow-2xs overflow-hidden transition-all hover:border-primary/50">
+          <div className="p-3 sm:p-3.5 flex items-center justify-between text-muted-foreground bg-muted/10 border-b border-border/40 select-none">
+            <div
+              onClick={() => onHighlightField?.('descricao_longa_ordem')}
+              className="flex items-center gap-2 truncate cursor-pointer hover:text-primary transition-colors flex-1 py-0.5"
+              title="Clique para localizar a Descrição da Ordem no PDF"
+            >
               <span className="font-semibold text-foreground flex items-center gap-1.5">
                 <FileText className="size-3.5 text-muted-foreground" /> Descrição da Ordem
               </span>
               {config.descricao_ordem === 'collapsed' && (
-                <span className="text-[11px] text-muted-foreground truncate font-mono max-w-[260px] hidden sm:inline">
+                <span className="text-[11px] text-muted-foreground truncate font-mono max-w-[260px] hidden sm:inline ml-1">
                   — {o.descricao_longa_ordem.slice(0, 70)}...
                 </span>
               )}
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              {config.descricao_ordem === 'expanded' && onHighlightField && (
+              {onHighlightField && (
                 <button
                   type="button"
                   onClick={(e) => {
@@ -686,23 +833,44 @@ export function OccurrenceTechnicalSheet({
                     onHighlightField('descricao_longa_ordem')
                   }}
                   className="text-[11px] text-primary flex items-center gap-1 font-medium hover:underline cursor-pointer"
+                  title="Destacar no PDF"
                 >
                   <Eye className="size-3" /> Ver no PDF
                 </button>
               )}
-              <div className="text-muted-foreground">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  toggleSection('descricao_ordem')
+                }}
+                className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+                title={config.descricao_ordem === 'expanded' ? 'Recolher campo' : 'Expandir campo'}
+              >
                 {config.descricao_ordem === 'expanded' ? (
                   <ChevronUp className="size-3.5" />
                 ) : (
                   <ChevronDown className="size-3.5" />
                 )}
-              </div>
+              </button>
             </div>
           </div>
 
           {config.descricao_ordem === 'expanded' && (
-            <div className="p-3 pt-0 sm:p-4 sm:pt-0 border-t border-border/40">
-              <p className="text-foreground leading-relaxed whitespace-pre-line bg-muted/30 p-3 rounded-lg border border-border/40 font-mono text-[11px] mt-2">
+            <div
+              onClick={() => onHighlightField?.('descricao_longa_ordem')}
+              className="p-3 sm:p-4 cursor-pointer hover:bg-muted/15 transition-colors group/desc"
+              title="Clique no texto para destacar no PDF"
+            >
+              <div className="flex items-center justify-between text-[11px] text-muted-foreground pb-1">
+                <span className="font-medium text-foreground">Texto extraído da ordem:</span>
+                {onHighlightField && (
+                  <span className="text-primary text-[11px] font-semibold flex items-center gap-1 opacity-70 group-hover/desc:opacity-100 transition-opacity">
+                    <Eye className="size-3" /> Destacar no PDF
+                  </span>
+                )}
+              </div>
+              <p className="text-foreground leading-relaxed whitespace-pre-line bg-muted/30 group-hover/desc:bg-muted/50 p-3 rounded-lg border border-border/40 group-hover/desc:border-primary/50 font-mono text-[11px] mt-1 transition-colors">
                 {o.descricao_longa_ordem}
               </p>
             </div>
@@ -712,24 +880,25 @@ export function OccurrenceTechnicalSheet({
 
       {/* ---------------- 7. FIELD: OPERAÇÕES DE MANUTENÇÃO ---------------- */}
       {config.operacoes !== 'hidden' && o.operacoes && o.operacoes.length > 0 && (
-        <div className="border rounded-xl bg-card shadow-2xs overflow-hidden transition-all">
-          <div
-            onClick={() => toggleSection('operacoes')}
-            className="p-3 sm:p-3.5 flex items-center justify-between text-muted-foreground hover:bg-muted/20 cursor-pointer select-none"
-          >
-            <div className="flex items-center gap-2 truncate">
+        <div className="border rounded-xl bg-card shadow-2xs overflow-hidden transition-all hover:border-primary/50">
+          <div className="p-3 sm:p-3.5 flex items-center justify-between text-muted-foreground bg-muted/10 border-b border-border/40 select-none">
+            <div
+              onClick={() => onHighlightField?.('operacoes')}
+              className="flex items-center gap-2 truncate cursor-pointer hover:text-primary transition-colors flex-1 py-0.5"
+              title="Clique para localizar as Operações no PDF"
+            >
               <span className="font-semibold text-foreground flex items-center gap-1.5">
                 <ListOrdered className="size-3.5 text-primary" /> Operações Registradas ({o.operacoes.length})
               </span>
               {config.operacoes === 'collapsed' && (
-                <span className="text-[11px] text-muted-foreground truncate hidden sm:inline">
+                <span className="text-[11px] text-muted-foreground truncate hidden sm:inline ml-1">
                   — {o.operacoes.map((op) => `${op.numero} ${op.descricao}`).join(' • ').slice(0, 60)}...
                 </span>
               )}
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              {config.operacoes === 'expanded' && onHighlightField && (
+              {onHighlightField && (
                 <button
                   type="button"
                   onClick={(e) => {
@@ -737,27 +906,40 @@ export function OccurrenceTechnicalSheet({
                     onHighlightField('operacoes')
                   }}
                   className="text-[11px] text-primary flex items-center gap-1 font-medium hover:underline cursor-pointer"
+                  title="Destacar no PDF"
                 >
                   <Eye className="size-3" /> Ver no PDF
                 </button>
               )}
-              <div className="text-muted-foreground">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  toggleSection('operacoes')
+                }}
+                className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+                title={config.operacoes === 'expanded' ? 'Recolher campo' : 'Expandir campo'}
+              >
                 {config.operacoes === 'expanded' ? (
                   <ChevronUp className="size-3.5" />
                 ) : (
                   <ChevronDown className="size-3.5" />
                 )}
-              </div>
+              </button>
             </div>
           </div>
 
           {config.operacoes === 'expanded' && (
-            <div className="p-3 pt-0 sm:p-4 sm:pt-0 border-t border-border/40">
-              <div className="space-y-1.5 pt-2">
+            <div
+              onClick={() => onHighlightField?.('operacoes')}
+              className="p-3 sm:p-4 cursor-pointer hover:bg-muted/15 transition-colors group/body"
+              title="Clique nas operações para destacar no PDF"
+            >
+              <div className="space-y-1.5">
                 {o.operacoes.map((op, i) => (
                   <div
                     key={i}
-                    className="flex items-start gap-2 text-xs p-2 rounded-lg bg-muted/20 border border-border/30"
+                    className="flex items-start gap-2 text-xs p-2 rounded-lg bg-muted/20 border border-border/30 hover:border-primary/50 transition-colors"
                   >
                     <span className="font-mono font-bold text-primary px-1.5 py-0.5 rounded bg-primary/10 shrink-0">
                       {op.numero}
@@ -773,24 +955,25 @@ export function OccurrenceTechnicalSheet({
 
       {/* ---------------- 8. FIELD: EXECUTANTES E HH (Table of Workers) ---------------- */}
       {config.executantes_hh !== 'hidden' && o.confirmations && o.confirmations.length > 0 && (
-        <div className="border rounded-xl bg-card shadow-2xs overflow-hidden transition-all">
-          <div
-            onClick={() => toggleSection('executantes_hh')}
-            className="p-3 sm:p-3.5 flex items-center justify-between text-muted-foreground hover:bg-muted/20 cursor-pointer select-none"
-          >
-            <div className="flex items-center gap-2 truncate">
+        <div className="border rounded-xl bg-card shadow-2xs overflow-hidden transition-all hover:border-primary/50">
+          <div className="p-3 sm:p-3.5 flex items-center justify-between text-muted-foreground bg-muted/10 border-b border-border/40 select-none">
+            <div
+              onClick={() => onHighlightField?.('confirmacoes')}
+              className="flex items-center gap-2 truncate cursor-pointer hover:text-primary transition-colors flex-1 py-0.5"
+              title="Clique para localizar os Executantes no PDF"
+            >
               <span className="font-semibold text-foreground flex items-center gap-1.5">
                 <Users className="size-3.5 text-primary" /> Executantes e HH ({o.hh_total_minutos} min)
               </span>
               {config.executantes_hh === 'collapsed' && (
-                <span className="text-[11px] text-muted-foreground truncate hidden sm:inline">
+                <span className="text-[11px] text-muted-foreground truncate hidden sm:inline ml-1">
                   — {o.confirmations.length} técnico(s) apontado(s) ({o.hh_total_minutos} min total)
                 </span>
               )}
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              {config.executantes_hh === 'expanded' && onHighlightField && (
+              {onHighlightField && (
                 <button
                   type="button"
                   onClick={(e) => {
@@ -798,23 +981,36 @@ export function OccurrenceTechnicalSheet({
                     onHighlightField('confirmacoes')
                   }}
                   className="text-[11px] text-primary flex items-center gap-1 font-medium hover:underline cursor-pointer"
+                  title="Destacar no PDF"
                 >
                   <Eye className="size-3" /> Ver no PDF
                 </button>
               )}
-              <div className="text-muted-foreground">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  toggleSection('executantes_hh')
+                }}
+                className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground cursor-pointer transition-colors"
+                title={config.executantes_hh === 'expanded' ? 'Recolher campo' : 'Expandir campo'}
+              >
                 {config.executantes_hh === 'expanded' ? (
                   <ChevronUp className="size-3.5" />
                 ) : (
                   <ChevronDown className="size-3.5" />
                 )}
-              </div>
+              </button>
             </div>
           </div>
 
           {config.executantes_hh === 'expanded' && (
-            <div className="p-3 pt-0 sm:p-4 sm:pt-0 border-t border-border/40 space-y-2">
-              <div className="overflow-x-auto rounded-lg border border-border/50 mt-2">
+            <div
+              onClick={() => onHighlightField?.('confirmacoes')}
+              className="p-3 sm:p-4 space-y-2 cursor-pointer hover:bg-muted/15 transition-colors group/body"
+              title="Clique para destacar no PDF"
+            >
+              <div className="overflow-x-auto rounded-lg border border-border/50">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-muted/50 border-b border-border/50 text-muted-foreground">
                     <tr>
@@ -837,9 +1033,16 @@ export function OccurrenceTechnicalSheet({
                 </table>
               </div>
               {o.texto_confirmacao && (
-                <p className="text-[11px] text-muted-foreground italic bg-muted/20 p-2 rounded-lg border border-border/30">
+                <div
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onHighlightField?.('texto_confirmacao') || onHighlightField?.('confirmacoes')
+                  }}
+                  className="text-[11px] text-muted-foreground italic bg-muted/20 hover:bg-muted/40 hover:border-primary/50 p-2 rounded-lg border border-border/30 transition-colors cursor-pointer"
+                  title="Clique no texto de confirmação para destacar no PDF"
+                >
                   "{o.texto_confirmacao}"
-                </p>
+                </div>
               )}
             </div>
           )}
