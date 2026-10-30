@@ -25,6 +25,7 @@ import type {
 } from '@/api/types'
 import { FilterSidebar } from '@/components/filters/FilterSidebar'
 import { QuickbarPresets } from '@/components/filters/QuickbarPresets'
+import { DashboardFilterBar } from '@/components/filters/DashboardFilterBar'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -96,6 +97,13 @@ export function Dashboards() {
 
       <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
         <QuickbarPresets filters={filters} onChange={setFilters} totalCount={kpis?.total} />
+        <DashboardFilterBar
+          filters={filters}
+          onChange={setFilters}
+          onRefresh={loadData}
+          loading={loading}
+          totalCount={kpis?.total}
+        />
 
         <div className="flex-1 overflow-y-auto p-4 space-y-6 max-w-7xl mx-auto w-full">
         {/* KPI Cards Row */}
