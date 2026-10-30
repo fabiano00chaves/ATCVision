@@ -164,8 +164,15 @@ async def ingest_pdf_file(
 
     created_count = 0
     updated_count = 0
+    fl_items_to_learn: List[Dict[str, Any]] = []
 
     for parsed_occ in extraction.occurrences:
+        if parsed_occ.posicao_funcional:
+            fl_items_to_learn.append({
+                "code": parsed_occ.posicao_funcional,
+                "description": parsed_occ.descricao_posicao_funcional or parsed_occ.descricao_curta_objeto,
+                "arvore_planta": parsed_occ.arvore_planta,
+            })
         key = parsed_occ.unique_sap_key
         if not key:
             continue
@@ -339,6 +346,13 @@ async def ingest_pdf_file(
             )
             db.add(mapping)
             created_count += 1
+
+    if fl_items_to_learn:
+        try:
+            from app.services.functional_location_service import learn_functional_locations_batch
+            await learn_functional_locations_batch(db, fl_items_to_learn)
+        except Exception as e:
+            log.warning("Failed to learn functional locations during ingestion: %s", e)
 
     await db.commit()
     await db.refresh(pdf_doc)

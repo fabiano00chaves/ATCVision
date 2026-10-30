@@ -7,6 +7,7 @@ from app.api.v1.endpoints import (
     daily,
     dashboards,
     documents,
+    functional_locations,
     ingest,
     meta,
     occurrences,
@@ -24,6 +25,7 @@ api_router.include_router(occurrences.router, prefix="/occurrences", tags=["Ocor
 api_router.include_router(occurrences.comment_router, prefix="/comments", tags=["Comentários"])
 api_router.include_router(daily.router, prefix="/daily", tags=["Relatório Diário"])
 api_router.include_router(presets.router, prefix="/presets", tags=["Filtros Pré-Cadastrados"])
+api_router.include_router(functional_locations.router, prefix="/functional-locations", tags=["Posições Funcionais"])
 api_router.include_router(dashboards.router, prefix="/dashboards", tags=["Dashboards e Confiabilidade"])
 api_router.include_router(reports.router, tags=["Relatórios"])
 api_router.include_router(settings.router, prefix="/settings", tags=["Configurações"])

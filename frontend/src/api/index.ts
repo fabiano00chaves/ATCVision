@@ -13,6 +13,9 @@ import type {
   DocumentStats,
   Facets,
   FailureModes,
+  FunctionalLocationNode,
+  FunctionalLocationRebuildResult,
+  FunctionalLocationUpdate,
   GenerateRequest,
   GenerateTextResult,
   Health,
@@ -138,6 +141,20 @@ export const settingsApi = {
 export const metaApi = {
   facets: (f: OccurrenceFilters = {}) => request<Facets>('/meta/facets', { query: filtersToQuery(f) }),
   health: () => request<Health>('/health'),
+}
+
+export const functionalLocationsApi = {
+  getTree: (params?: { root_code?: string; arvore_planta?: string; max_depth?: number; search?: string }) =>
+    request<FunctionalLocationNode[]>('/functional-locations/tree', { query: params }),
+  search: (q: string, limit = 50) =>
+    request<FunctionalLocationNode[]>('/functional-locations/search', { query: { q, limit } }),
+  updateNode: (code: string, payload: FunctionalLocationUpdate) =>
+    request<FunctionalLocationNode>(`/functional-locations/nodes/${encodeURIComponent(code)}`, {
+      method: 'PATCH',
+      json: payload,
+    }),
+  rebuild: () =>
+    request<FunctionalLocationRebuildResult>('/functional-locations/rebuild', { method: 'POST' }),
 }
 
 export const tokensApi = {

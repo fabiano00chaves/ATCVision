@@ -250,3 +250,33 @@ class SystemSetting(Base):
 
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[Dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+
+
+class FunctionalLocation(Base):
+    __tablename__ = "functional_locations"
+
+    full_code: Mapped[str] = mapped_column(String(128), primary_key=True)
+    parent_code: Mapped[Optional[str]] = mapped_column(
+        String(128), ForeignKey("functional_locations.full_code", ondelete="CASCADE"), index=True, nullable=True
+    )
+    segment_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    level: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    custom_label: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    arvore_planta: Mapped[Optional[str]] = mapped_column(String(32), index=True, nullable=True)
+    occurrence_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    children: Mapped[List[FunctionalLocation]] = relationship(
+        "FunctionalLocation",
+        back_populates="parent",
+        cascade="all, delete-orphan",
+    )
+    parent: Mapped[Optional[FunctionalLocation]] = relationship(
+        "FunctionalLocation",
+        back_populates="children",
+        remote_side=[full_code],
+    )
+

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -7,14 +7,19 @@ import {
   ClipboardList,
   Compass,
   FileSpreadsheet,
+  Network,
   Plus,
   Sparkles,
   Tag,
   Trash2,
   X,
+  Loader2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { functionalLocationsApi } from '@/api'
+import type { FunctionalLocationNode } from '@/api/types'
+import { FunctionalLocationTreeModal } from '@/components/functional-locations/FunctionalLocationTreeModal'
 
 interface FunctionalLocationInputProps {
   value?: string[]
@@ -22,6 +27,7 @@ interface FunctionalLocationInputProps {
   placeholder?: string
   className?: string
   compact?: boolean
+  arvorePlantaFilter?: string
 }
 
 const COMMON_PLANT_AREAS = [
@@ -39,17 +45,60 @@ export function FunctionalLocationInput({
   placeholder = 'Ex: BT-ST-SLM1, SLM1-PAN01 (Pressione Enter)...',
   className,
   compact = false,
+  arvorePlantaFilter,
 }: FunctionalLocationInputProps) {
   const [inputValue, setInputValue] = useState('')
   const [pasteModeOpen, setPasteModeOpen] = useState(false)
   const [pasteText, setPasteText] = useState('')
+  const [treeModalOpen, setTreeModalOpen] = useState(false)
+
+  // Autocomplete state
+  const [suggestions, setSuggestions] = useState<FunctionalLocationNode[]>([])
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false)
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  // Search suggestions on input change
+  useEffect(() => {
+    const trimmed = inputValue.trim()
+    if (trimmed.length < 2) {
+      setSuggestions([])
+      setShowSuggestions(false)
+      return
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        setLoadingSuggestions(true)
+        const results = await functionalLocationsApi.search(trimmed, 8)
+        setSuggestions(results)
+        setShowSuggestions(results.length > 0)
+      } catch (err) {
+        console.error('Error fetching suggestions:', err)
+      } finally {
+        setLoadingSuggestions(false)
+      }
+    }, 200)
+
+    return () => clearTimeout(timer)
+  }, [inputValue])
+
+  // Close suggestions on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   // Add a single tag
   const handleAddTag = (textToAdd?: string) => {
     const raw = (textToAdd !== undefined ? textToAdd : inputValue).trim()
     if (!raw) return
 
-    // Split if someone typed/pasted multiple into the single input
     const tokens = raw
       .split(/[,;\n\r\t]+/)
       .map((t) => t.trim().toUpperCase())
@@ -60,6 +109,7 @@ export function FunctionalLocationInput({
     const next = Array.from(new Set([...value, ...tokens]))
     onChange(next)
     setInputValue('')
+    setShowSuggestions(false)
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -69,6 +119,8 @@ export function FunctionalLocationInput({
     } else if (e.key === ',' || e.key === ';') {
       e.preventDefault()
       handleAddTag()
+    } else if (e.key === 'Escape') {
+      setShowSuggestions(false)
     }
   }
 
@@ -105,19 +157,30 @@ export function FunctionalLocationInput({
   }
 
   return (
-    <div className={cn('space-y-2 text-xs', className)}>
+    <div ref={containerRef} className={cn('space-y-2 text-xs relative', className)}>
       {/* Input bar with quick actions */}
       <div className="flex items-center gap-1.5">
         <div className="relative flex-1">
           <Tag className="absolute left-2.5 top-2 size-3.5 text-muted-foreground" />
           <Input
             value={inputValue}
-            onChange={(e) => setInputValue(e.target.value)}
+            onChange={(e) => {
+              setInputValue(e.target.value)
+              if (!showSuggestions && e.target.value.length >= 2) {
+                setShowSuggestions(true)
+              }
+            }}
+            onFocus={() => {
+              if (suggestions.length > 0) setShowSuggestions(true)
+            }}
             onKeyDown={handleKeyDown}
             placeholder={placeholder}
             className="pl-8 pr-16 h-7 text-xs font-mono bg-background"
           />
-          {inputValue && (
+
+          {loadingSuggestions ? (
+            <Loader2 className="absolute right-2 top-2 size-3 text-muted-foreground animate-spin" />
+          ) : inputValue ? (
             <Button
               type="button"
               size="xs"
@@ -127,8 +190,59 @@ export function FunctionalLocationInput({
             >
               <Plus className="size-3 mr-0.5" /> Adicionar
             </Button>
+          ) : null}
+
+          {/* Autocomplete floating suggestions */}
+          {showSuggestions && suggestions.length > 0 && (
+            <div className="absolute z-50 left-0 right-0 top-8 bg-popover border border-border rounded-md shadow-lg overflow-hidden py-1 max-h-56 overflow-y-auto animate-in fade-in-50 zoom-in-95">
+              <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground border-b border-border/40">
+                Posições Funcionais Aprendidas
+              </div>
+              {suggestions.map((item) => (
+                <button
+                  key={item.full_code}
+                  type="button"
+                  onClick={() => handleAddTag(item.full_code)}
+                  className="w-full text-left px-2.5 py-1.5 hover:bg-muted/80 flex items-center justify-between gap-2 transition-colors border-b border-border/20 last:border-0"
+                >
+                  <div className="min-w-0">
+                    <div className="font-mono text-xs font-semibold text-foreground flex items-center gap-1.5">
+                      <span>{item.full_code}</span>
+                      {item.arvore_planta && (
+                        <span className="text-[10px] text-muted-foreground font-normal">
+                          ({item.arvore_planta})
+                        </span>
+                      )}
+                    </div>
+                    {(item.custom_label || item.description) && (
+                      <div className="text-[11px] text-muted-foreground truncate">
+                        {item.custom_label || item.description}
+                      </div>
+                    )}
+                  </div>
+                  {item.occurrence_count > 0 && (
+                    <Badge variant="outline" className="text-[10px] py-0 px-1 font-mono shrink-0">
+                      {item.occurrence_count} ocorr.
+                    </Badge>
+                  )}
+                </button>
+              ))}
+            </div>
           )}
         </div>
+
+        {/* Tree Navigator Button */}
+        <Button
+          type="button"
+          size="xs"
+          variant="outline"
+          onClick={() => setTreeModalOpen(true)}
+          className="h-7 gap-1 text-[11px] shrink-0 border-primary/30 hover:bg-primary/5 text-primary"
+          title="Navegar e selecionar nós da árvore de posições funcionais"
+        >
+          <Network className="size-3 text-primary" />
+          <span>Árvore de PFs</span>
+        </Button>
 
         <Button
           type="button"
@@ -251,6 +365,15 @@ export function FunctionalLocationInput({
           })}
         </div>
       )}
+
+      {/* Tree Selector Modal Dialog */}
+      <FunctionalLocationTreeModal
+        open={treeModalOpen}
+        onOpenChange={setTreeModalOpen}
+        value={value}
+        onApply={(newSelection) => onChange(newSelection)}
+        arvorePlantaFilter={arvorePlantaFilter}
+      />
     </div>
   )
 }

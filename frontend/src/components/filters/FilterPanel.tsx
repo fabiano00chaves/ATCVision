@@ -364,9 +364,10 @@ export function FilterPanel({ filters, onChange, showPeriod = true, onPresetSave
               onChange={(pfs) => set({ fl_prefixes: pfs.length ? pfs : undefined })}
               placeholder="Ex: BT-ST-SLM1 (Enter ou vírgula)"
               compact
+              arvorePlantaFilter={filters.arvores && filters.arvores.length === 1 ? filters.arvores[0] : undefined}
             />
             <p className="text-[10px] text-muted-foreground mt-1.5 leading-snug">
-              Prefixo, trecho ou lista colada do Excel. Várias PFs combinam com “OU”.
+              Prefixo, trecho, busca rápida ou seleção na Árvore de PFs. Várias PFs combinam com “OU”.
             </p>
           </Section>
         )

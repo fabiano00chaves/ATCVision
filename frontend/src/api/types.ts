@@ -503,3 +503,35 @@ export interface Health {
   db: boolean
   version: string
 }
+
+// ---------- Functional Locations Tree ----------
+export interface FunctionalLocationNode {
+  full_code: string
+  parent_code: string | null
+  segment_code: string
+  level: number
+  description: string | null
+  custom_label: string | null
+  arvore_planta: string | null
+  occurrence_count: number
+  total_occurrences: number
+  children_count: number
+  first_seen_at?: string | null
+  last_seen_at?: string | null
+  is_active: boolean
+  children?: FunctionalLocationNode[]
+}
+
+export interface FunctionalLocationUpdate {
+  custom_label?: string | null
+  description?: string | null
+  is_active?: boolean
+}
+
+export interface FunctionalLocationRebuildResult {
+  scanned_occurrences: number
+  total_nodes: number
+  max_depth: number
+  message: string
+  ok: boolean
+}
