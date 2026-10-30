@@ -107,7 +107,7 @@ async def upload_documents(
     results: List[UploadResultItem] = []
 
     for file in files:
-        filename = os.path.basename(file.filename or "relatorio.pdf")
+        filename = os.path.basename((file.filename or "relatorio.pdf").replace("\\", "/"))
         # Validate magic bytes (%PDF-)
         header_bytes = await file.read(5)
         if not header_bytes.startswith(b"%PDF-"):
@@ -425,6 +425,19 @@ async def execute_document_cleanup(
         )
 
     else:  # delete_complete
+        # Hardened safety checks: admin-only and explicit 2-tier challenge confirmation string
+        if not current_user.is_admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Apenas administradores podem executar o expurgo completo de documentos e ocorrências.",
+            )
+
+        if not req.confirmation_challenge or req.confirmation_challenge.strip().upper() != "EXPURGAR":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Confirmação obrigatória: digite a palavra 'EXPURGAR' para autorizar a exclusão definitiva.",
+            )
+
         for d in docs:
             freed = purge_doc_disk_files(d)
             bytes_freed += freed
@@ -572,6 +585,12 @@ async def delete_document(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    if not purge_only and not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Apenas administradores podem excluir documentos e ocorrências definitivamente do sistema.",
+        )
+
     res = await db.execute(select(PdfDocument).where(PdfDocument.id == document_id))
     doc = res.scalar_one_or_none()
     if not doc:

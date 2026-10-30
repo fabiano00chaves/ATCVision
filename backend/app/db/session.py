@@ -16,16 +16,22 @@ class Base(DeclarativeBase):
 
 # Connect arguments depending on backend engine
 connect_args = {}
+extra_kwargs = {}
 if settings.DATABASE_URL.startswith("sqlite"):
     connect_args["check_same_thread"] = False
+    if ":memory:" in settings.DATABASE_URL or "mode=memory" in settings.DATABASE_URL:
+        from sqlalchemy.pool import StaticPool
+        extra_kwargs["poolclass"] = StaticPool
+else:
+    extra_kwargs["pool_size"] = 20
+    extra_kwargs["max_overflow"] = 10
 
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
     connect_args=connect_args,
     pool_pre_ping=True,
-    # In SQLite pool_size / max_overflow cannot be set on NullPool / StaticPool
-    **({} if settings.DATABASE_URL.startswith("sqlite") else {"pool_size": 20, "max_overflow": 10}),
+    **extra_kwargs,
 )
 
 async_session_factory = async_sessionmaker(

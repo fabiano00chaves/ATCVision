@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, status
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.core.middleware import SecurityHeadersMiddleware
 from app.db.session import async_session_factory, engine, Base
 from app.services.seed_data import seed_initial_data
 from app.services.watch_folder import start_watch_folder_background, stop_watch_folder_background
@@ -81,6 +82,9 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Security Headers & Cloudflare Request Correlation Middleware
+app.add_middleware(SecurityHeadersMiddleware)
+
 # CORS
 app.add_middleware(
     CORSMiddleware,
@@ -89,6 +93,30 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def global_unhandled_exception_handler(request: Request, exc: Exception):
+    from starlette.exceptions import HTTPException as StarletteHTTPException
+    if isinstance(exc, StarletteHTTPException):
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+            headers=getattr(exc, "headers", None),
+        )
+
+    log.error(
+        "Unhandled exception on %s %s: %s",
+        request.method,
+        request.url.path,
+        exc,
+        exc_info=True,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={"detail": "Erro interno no servidor. A operação foi cancelada por segurança."},
+    )
+
 
 # Main API router
 app.include_router(api_router, prefix=settings.API_V1_STR)

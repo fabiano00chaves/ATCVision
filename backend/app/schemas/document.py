@@ -58,6 +58,7 @@ class DocumentCleanupRequest(BaseModel):
     before_date: Optional[str] = None
     action: str = "purge_binaries"  # "purge_binaries" | "delete_complete"
     delete_occurrences: bool = True
+    confirmation_challenge: Optional[str] = None
 
 
 class DocumentPreviewItem(BaseModel):

@@ -53,13 +53,19 @@ async def get_daily_window(
         label = f"Último Turno (24h) — {start_dt.strftime('%d/%m %H:%M')} até {end_dt.strftime('%d/%m %H:%M')}"
 
     elif mode == "weekend":
-        # Previous Friday 06:00 to Monday 06:00 of the reference week
-        # Monday is weekday 0, Friday is weekday 4, Sunday is 6
-        days_since_monday = ref_date.weekday()
-        # Monday of current week
-        mon = ref_date - timedelta(days=days_since_monday)
-        # Friday before that Monday
-        fri = mon - timedelta(days=3)
+        # Friday 06:00 to Monday 06:00 of the active or most recent weekend
+        # Monday is weekday 0, Friday is weekday 4, Saturday is 5, Sunday is 6
+        weekday = ref_date.weekday()
+        if weekday in (5, 6):  # Saturday or Sunday
+            fri = ref_date - timedelta(days=(weekday - 4))
+            mon = fri + timedelta(days=3)
+        elif weekday == 0:  # Monday
+            mon = ref_date
+            fri = mon - timedelta(days=3)
+        else:  # Tuesday (1) to Friday (4)
+            mon = ref_date - timedelta(days=weekday)
+            fri = mon - timedelta(days=3)
+
         start_dt = datetime.combine(fri, cutoff_time)
         end_dt = datetime.combine(mon, cutoff_time)
         label = f"Pós-Final de Semana — Sex {start_dt.strftime('%d/%m %H:%M')} até Seg {end_dt.strftime('%d/%m %H:%M')}"

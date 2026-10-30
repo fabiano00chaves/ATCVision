@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { dailyApi, dashboardsApi, documentsApi, occurrencesApi, presetsApi } from '@/api'
+import { dailyApi, dashboardsApi, documentsApi, occurrencesApi, presetsApi, reportsApi } from '@/api'
 import type {
   DailyMode,
   DailyWindow,
@@ -12,6 +12,12 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Occurrences } from './Occurrences'
 import { FilterSidebar } from '@/components/filters/FilterSidebar'
 import { useWorkspaceLayout } from '@/context/WorkspaceLayoutContext'
@@ -29,11 +35,15 @@ import {
   ChevronUp,
   Clock,
   Database,
+  Download,
+  FileSpreadsheet,
   FileText,
   Filter,
   Flame,
   Layers,
+  Loader2,
   Maximize2,
+  MessageSquare,
   Minimize2,
   OctagonAlert,
   Search,
@@ -235,6 +245,44 @@ export function DailyReport() {
     computedFilters.end = windowInfo.end
   }
 
+  const [exporting, setExporting] = useState<boolean>(false)
+
+  const handleExportDaily = async (fmt: 'pdf' | 'xlsx' | 'csv' | 'whatsapp') => {
+    setExporting(true)
+    try {
+      const headerTitle = windowInfo?.label
+        ? `Relatório Diário ATC — ${windowInfo.label}`
+        : 'Relatório Diário de Turno — ATC Vision'
+
+      const res = await reportsApi.generate({
+        header_title: headerTitle,
+        format: fmt,
+        scope: 'all',
+        filters: computedFilters,
+        include_atc_comments: true,
+      })
+
+      if (res.kind === 'json') {
+        await navigator.clipboard.writeText(res.data.text)
+        toast.success('Resumo de turno copiado para a área de transferência!')
+      } else {
+        const url = window.URL.createObjectURL(res.data.blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = res.data.filename || `relatorio_diario_atc.${fmt}`
+        document.body.appendChild(a)
+        a.click()
+        window.URL.revokeObjectURL(url)
+        document.body.removeChild(a)
+        toast.success(`Relatório ${fmt.toUpperCase()} exportado com sucesso!`)
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Erro ao exportar relatório')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const activeFiltersCount = countActiveFilters(filters)
   const isDocFiltered = selectedDocIds.length > 0
   const activePreset = presets.find((p) => p.id === filters.preset_id)
@@ -317,6 +365,68 @@ export function DailyReport() {
 
               {/* Right controls */}
               <div className="flex items-center gap-1 shrink-0">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      disabled={exporting}
+                      className="h-6 text-[10px] gap-1 px-2 text-primary font-semibold hover:bg-muted"
+                      title="Exportar Relatório Diário de Turno (PDF, Excel, WhatsApp)"
+                    >
+                      {exporting ? (
+                        <Loader2 className="size-3 animate-spin text-primary" />
+                      ) : (
+                        <Download className="size-3 text-primary" />
+                      )}
+                      <span className="hidden sm:inline">Exportar</span>
+                      <ChevronDown className="size-2.5 text-muted-foreground" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56 text-xs">
+                    <DropdownMenuItem
+                      onClick={() => handleExportDaily('pdf')}
+                      className="gap-2 cursor-pointer"
+                    >
+                      <FileText className="size-4 text-red-500" />
+                      <div className="flex flex-col">
+                        <span className="font-semibold">Relatório em PDF</span>
+                        <span className="text-[10px] text-muted-foreground">Layout executivo A4</span>
+                      </div>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => handleExportDaily('xlsx')}
+                      className="gap-2 cursor-pointer"
+                    >
+                      <FileSpreadsheet className="size-4 text-emerald-600" />
+                      <div className="flex flex-col">
+                        <span className="font-semibold">Planilha Excel (.xlsx)</span>
+                        <span className="text-[10px] text-muted-foreground">Com autofiltro e dados SAP</span>
+                      </div>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => handleExportDaily('csv')}
+                      className="gap-2 cursor-pointer"
+                    >
+                      <Database className="size-4 text-blue-500" />
+                      <div className="flex flex-col">
+                        <span className="font-semibold">Arquivo CSV</span>
+                        <span className="text-[10px] text-muted-foreground">UTF-8 estruturado</span>
+                      </div>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={() => handleExportDaily('whatsapp')}
+                      className="gap-2 cursor-pointer"
+                    >
+                      <MessageSquare className="size-4 text-emerald-500" />
+                      <div className="flex flex-col">
+                        <span className="font-semibold">Copiar p/ WhatsApp / Teams</span>
+                        <span className="text-[10px] text-muted-foreground">Texto formatado com emojis</span>
+                      </div>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -511,6 +621,69 @@ export function DailyReport() {
                       </span>
                     )}
                   </Button>
+
+                  {/* Export Daily Report Button */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="xs"
+                        disabled={exporting}
+                        className="h-7 px-2.5 text-xs font-semibold gap-1.5 shrink-0 bg-background hover:bg-muted/60"
+                        title="Exportar Relatório Diário de Turno (PDF, Excel, WhatsApp)"
+                      >
+                        {exporting ? (
+                          <Loader2 className="size-3.5 animate-spin text-primary" />
+                        ) : (
+                          <Download className="size-3.5 text-primary" />
+                        )}
+                        <span className="hidden sm:inline">Exportar Diário</span>
+                        <ChevronDown className="size-3 text-muted-foreground ml-0.5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56 text-xs">
+                      <DropdownMenuItem
+                        onClick={() => handleExportDaily('pdf')}
+                        className="gap-2 cursor-pointer"
+                      >
+                        <FileText className="size-4 text-red-500" />
+                        <div className="flex flex-col">
+                          <span className="font-semibold">Relatório em PDF</span>
+                          <span className="text-[10px] text-muted-foreground">Layout executivo A4</span>
+                        </div>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => handleExportDaily('xlsx')}
+                        className="gap-2 cursor-pointer"
+                      >
+                        <FileSpreadsheet className="size-4 text-emerald-600" />
+                        <div className="flex flex-col">
+                          <span className="font-semibold">Planilha Excel (.xlsx)</span>
+                          <span className="text-[10px] text-muted-foreground">Com autofiltro e dados SAP</span>
+                        </div>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => handleExportDaily('csv')}
+                        className="gap-2 cursor-pointer"
+                      >
+                        <Database className="size-4 text-blue-500" />
+                        <div className="flex flex-col">
+                          <span className="font-semibold">Arquivo CSV</span>
+                          <span className="text-[10px] text-muted-foreground">UTF-8 estruturado</span>
+                        </div>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => handleExportDaily('whatsapp')}
+                        className="gap-2 cursor-pointer"
+                      >
+                        <MessageSquare className="size-4 text-emerald-500" />
+                        <div className="flex flex-col">
+                          <span className="font-semibold">Copiar p/ WhatsApp / Teams</span>
+                          <span className="text-[10px] text-muted-foreground">Texto formatado com emojis</span>
+                        </div>
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
 
                   {/* Collapse Top Bar Button */}
                   <Tooltip>

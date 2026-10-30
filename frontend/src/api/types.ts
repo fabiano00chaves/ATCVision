@@ -66,6 +66,7 @@ export interface DocumentCleanupRequest {
   before_date?: string
   action: 'purge_binaries' | 'delete_complete'
   delete_occurrences?: boolean
+  confirmation_challenge?: string
 }
 
 export interface DocumentPreviewItem {

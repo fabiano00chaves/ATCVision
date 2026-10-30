@@ -237,6 +237,10 @@ export function Documents() {
   }
 
   const handleDeleteSingle = async (doc: PdfDocument) => {
+    if (!user?.is_admin) {
+      toast.error('Apenas administradores podem excluir documentos definitivamente do sistema.')
+      return
+    }
     if (!confirm(`ATENÇÃO: Deseja EXCLUIR DEFINITIVAMENTE o documento "${doc.filename}" e TODAS as suas ocorrências exclusivas?`)) return
     try {
       const res = await documentsApi.remove(doc.id, false, true)

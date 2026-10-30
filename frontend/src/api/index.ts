@@ -148,6 +148,8 @@ export const functionalLocationsApi = {
     request<FunctionalLocationNode[]>('/functional-locations/tree', { query: params }),
   search: (q: string, limit = 50) =>
     request<FunctionalLocationNode[]>('/functional-locations/search', { query: { q, limit } }),
+  getNode: (code: string) =>
+    request<FunctionalLocationNode>(`/functional-locations/nodes/${encodeURIComponent(code)}`),
   updateNode: (code: string, payload: FunctionalLocationUpdate) =>
     request<FunctionalLocationNode>(`/functional-locations/nodes/${encodeURIComponent(code)}`, {
       method: 'PATCH',

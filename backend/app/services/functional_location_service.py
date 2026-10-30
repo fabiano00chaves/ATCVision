@@ -454,3 +454,41 @@ async def update_node(
     await db.commit()
     await db.refresh(node)
     return node
+
+
+async def get_node(
+    db: AsyncSession,
+    full_code: str,
+) -> Optional[Dict[str, Any]]:
+    """
+    Retrieves a single functional location node by full_code with direct child counts.
+    """
+    clean_code = full_code.strip().upper()
+    node = await db.get(FunctionalLocation, clean_code)
+    if not node:
+        return None
+
+    # Count children
+    children_res = await db.execute(
+        select(func.count(FunctionalLocation.full_code)).where(
+            FunctionalLocation.parent_code == clean_code,
+            FunctionalLocation.is_active.is_(True),
+        )
+    )
+    children_count = children_res.scalar() or 0
+
+    return {
+        "full_code": node.full_code,
+        "parent_code": node.parent_code,
+        "segment_code": node.segment_code,
+        "level": node.level,
+        "description": node.description,
+        "custom_label": node.custom_label,
+        "arvore_planta": node.arvore_planta,
+        "occurrence_count": node.occurrence_count,
+        "total_occurrences": node.occurrence_count,
+        "children_count": children_count,
+        "first_seen_at": node.first_seen_at,
+        "last_seen_at": node.last_seen_at,
+        "is_active": node.is_active,
+    }

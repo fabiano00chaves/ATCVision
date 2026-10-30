@@ -19,6 +19,7 @@ from sqlalchemy import (
     or_,
     select,
     update,
+    String,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -505,6 +506,19 @@ async def apply_occurrence_filters(
     prioridade_atc = parse_csv_param(filters.get("prioridade_atc"))
     if prioridade_atc:
         query = query.where(Occurrence.prioridade_atc.in_(prioridade_atc))
+
+    prioridade_sap = parse_csv_param(filters.get("prioridade_sap"))
+    if prioridade_sap:
+        query = query.where(Occurrence.prioridade_sap.in_(prioridade_sap))
+
+    jump_status = filters.get("jump_status")
+    if jump_status and str(jump_status).upper() != "ALL":
+        query = query.where(Occurrence.jump_status == str(jump_status).upper())
+
+    tags = parse_csv_param(filters.get("tags"))
+    if tags:
+        for t in tags:
+            query = query.where(func.cast(Occurrence.tags_customizadas, String).ilike(f"%{t}%"))
 
     def to_bool(val: Any) -> bool:
         if isinstance(val, bool):

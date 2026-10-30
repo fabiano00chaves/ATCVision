@@ -16,10 +16,27 @@ from app.schemas.auth import LoginRequest, LoginResponse, UserOut
 router = APIRouter()
 
 
+def is_secure_request(request: Request) -> bool:
+    if settings.COOKIE_SECURE:
+        return True
+    if settings.ENVIRONMENT == "production":
+        return True
+    proto = request.headers.get("x-forwarded-proto", "").lower()
+    if proto == "https":
+        return True
+    cf_visitor = request.headers.get("cf-visitor", "").lower()
+    if '"scheme":"https"' in cf_visitor:
+        return True
+    if request.url.scheme == "https":
+        return True
+    return False
+
+
 @router.post("/login", response_model=LoginResponse)
 async def login(
     payload: LoginRequest,
     response: Response,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
     res = await db.execute(select(User).where(User.email == payload.email.lower()))
@@ -40,7 +57,7 @@ async def login(
         value=access_token,
         max_age=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         httponly=True,
-        secure=settings.COOKIE_SECURE,
+        secure=is_secure_request(request),
         samesite=settings.COOKIE_SAMESITE,
         path="/",
     )
@@ -49,12 +66,12 @@ async def login(
 
 
 @router.post("/logout")
-async def logout(response: Response):
+async def logout(response: Response, request: Request):
     response.delete_cookie(
         key=settings.COOKIE_NAME,
         path="/",
         httponly=True,
-        secure=settings.COOKIE_SECURE,
+        secure=is_secure_request(request),
         samesite=settings.COOKIE_SAMESITE,
     )
     return {"ok": True, "message": "Sessão encerrada"}
@@ -63,6 +80,7 @@ async def logout(response: Response):
 @router.get("/me", response_model=UserOut)
 async def get_me(
     response: Response,
+    request: Request,
     current_user: User = Depends(get_current_user),
     atc_session: Optional[str] = Cookie(None),
 ):
@@ -76,7 +94,7 @@ async def get_me(
             value=access_token,
             max_age=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES * 60,
             httponly=True,
-            secure=settings.COOKIE_SECURE,
+            secure=is_secure_request(request),
             samesite=settings.COOKIE_SAMESITE,
             path="/",
         )

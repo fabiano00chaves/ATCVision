@@ -53,6 +53,24 @@ async def search_functional_locations(
     return await functional_location_service.search_nodes(db, query=q, limit=limit)
 
 
+@router.get("/nodes/{code:path}", response_model=FunctionalLocationNodeOut)
+async def get_functional_location_node(
+    code: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Retorna os detalhes e estatísticas de um nó específico da árvore de posições funcionais.
+    """
+    node = await functional_location_service.get_node(db, full_code=code)
+    if not node:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Posição funcional '{code}' não encontrada.",
+        )
+    return node
+
+
 @router.patch("/nodes/{code:path}", response_model=FunctionalLocationNodeOut)
 async def update_functional_location_node(
     code: str,

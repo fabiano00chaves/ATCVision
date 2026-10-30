@@ -44,11 +44,12 @@ async def get_current_user(
         cf_user = u_res.scalar_one_or_none()
         if not cf_user:
             name_part = clean_email.split("@")[0].replace(".", " ").title()
+            is_adm = (clean_email == settings.ADMIN_EMAIL.lower())
             cf_user = User(
                 email=clean_email,
                 name=f"{name_part}",
                 hashed_password=hash_password("CloudflareZeroTrustPass"),
-                is_admin=True,
+                is_admin=is_adm,
             )
             db.add(cf_user)
             try:
@@ -62,11 +63,41 @@ async def get_current_user(
 
     # 3. Bearer Token Auth / Session Cookie
     jwt_token = None
+    authenticated_via_cookie = False
     if authorization and authorization.startswith("Bearer "):
         jwt_token = authorization.split(" ")[1]
     elif atc_session:
         jwt_token = atc_session
+        authenticated_via_cookie = True
+
+    if jwt_token:
         # CSRF check on state-changing methods authenticated by cookie
+        if authenticated_via_cookie and request.method not in ("GET", "HEAD", "OPTIONS"):
+            if not x_atc_client or x_atc_client != "web":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Requisição rejeitada por política de segurança CSRF (header X-ATC-Client ausente)",
+                )
+
+        user_id = decode_token(jwt_token)
+        if not user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token de sessão inválido ou expirado.",
+            )
+
+        u_res = await db.execute(select(User).where(User.id == user_id))
+        user = u_res.scalar_one_or_none()
+        if user:
+            return user
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Usuário da sessão não encontrado no sistema.",
+        )
+
+    # 4. Auto-Login Fallback (Protected by Cloudflare Access or internal intranet)
+    if settings.AUTO_LOGIN_ENABLED:
+        # CSRF check on state-changing methods authenticated via browser auto-login
         if request.method not in ("GET", "HEAD", "OPTIONS"):
             if not x_atc_client or x_atc_client != "web":
                 raise HTTPException(
@@ -74,16 +105,6 @@ async def get_current_user(
                     detail="Requisição rejeitada por política de segurança CSRF (header X-ATC-Client ausente)",
                 )
 
-    if jwt_token:
-        user_id = decode_token(jwt_token)
-        if user_id:
-            u_res = await db.execute(select(User).where(User.id == user_id))
-            user = u_res.scalar_one_or_none()
-            if user:
-                return user
-
-    # 4. Auto-Login Fallback (Protected by Cloudflare Access or internal intranet)
-    if settings.AUTO_LOGIN_ENABLED:
         # Busca usuário administrador padrão
         admin_res = await db.execute(select(User).where(User.is_admin == True).order_by(User.created_at.asc()))
         admin_user = admin_res.scalars().first()

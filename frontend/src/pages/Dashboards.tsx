@@ -25,7 +25,7 @@ import type {
 } from '@/api/types'
 import { FilterSidebar } from '@/components/filters/FilterSidebar'
 import { QuickbarPresets } from '@/components/filters/QuickbarPresets'
-import { DashboardFilterBar } from '@/components/filters/DashboardFilterBar'
+import { DashboardFilterBar, getPeriodBounds } from '@/components/filters/DashboardFilterBar'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -47,7 +47,10 @@ import { toast } from 'sonner'
 const COLORS = ['#3b82f6', '#f97316', '#10b981', '#8b5cf6', '#eab308', '#ef4444', '#06b6d4']
 
 export function Dashboards() {
-  const [filters, setFilters] = useState<OccurrenceFilters>({})
+  const [filters, setFilters] = useState<OccurrenceFilters>(() => {
+    const bounds = getPeriodBounds('30d')
+    return { start: bounds.start, end: bounds.end }
+  })
   const [kpis, setKpis] = useState<Kpis | null>(null)
   const [badActors, setBadActors] = useState<BadActorItem[]>([])
   const [badActorDays, setBadActorDays] = useState<number>(7)

@@ -32,16 +32,24 @@ async def ingest_endpoint(
 ):
     content_type = request.headers.get("content-type", "")
 
+    max_bytes = 100 * 1024 * 1024
+
     if "application/json" in content_type:
         try:
             body = await request.json()
             payload = JsonIngestPayload(**body)
             pdf_bytes = base64.b64decode(payload.content_base64)
-            filename = os.path.basename(payload.filename)
-        except Exception as exc:
+            filename = os.path.basename((payload.filename or "relatorio.pdf").replace("\\", "/"))
+        except Exception:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"JSON inválido para ingestão: {exc}",
+                detail="JSON inválido para ingestão.",
+            )
+
+        if len(pdf_bytes) > max_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"Arquivo {filename} excede o limite máximo de 100MB.",
             )
 
         if not pdf_bytes.startswith(b"%PDF-"):
@@ -51,57 +59,64 @@ async def ingest_endpoint(
             )
 
         temp_path = settings.STORAGE_DIR / f"api_ingest_{os.urandom(8).hex()}_{filename}"
-        with open(temp_path, "wb") as f_out:
-            f_out.write(pdf_bytes)
+        try:
+            with open(temp_path, "wb") as f_out:
+                f_out.write(pdf_bytes)
 
-        doc, created, updated, st = await ingest_pdf_file(
-            db, temp_path, filename, source="WEBHOOK_API"
-        )
-
-        doc_out = None
-        if doc:
-            doc_out = PdfDocumentOut(
-                id=doc.id,
-                filename=doc.filename,
-                file_hash_sha256=doc.file_hash_sha256,
-                report_period_start=doc.report_period_start,
-                report_period_end=doc.report_period_end,
-                emitted_at=doc.emitted_at,
-                page_count=doc.page_count,
-                ocr_applied=doc.ocr_applied,
-                ingestion_source=doc.ingestion_source,
-                created_at=doc.created_at,
-                occurrence_count=created + updated,
-                parse_warnings=doc.parse_warnings or [],
-                page_sizes=doc.page_sizes or [],
+            doc, created, updated, st = await ingest_pdf_file(
+                db, temp_path, filename, source="WEBHOOK_API"
             )
-            if st == "created":
-                await trigger_webhooks(
-                    db,
-                    "document.ingested",
-                    {
-                        "document_id": doc.id,
-                        "filename": doc.filename,
-                        "occurrences_created": created,
-                        "occurrences_updated": updated,
-                        "source": "WEBHOOK_API",
-                    },
-                )
 
-        return UploadResult(
-            results=[
-                UploadResultItem(
-                    filename=filename,
-                    status=st,
-                    document=doc_out,
-                    occurrences_created=created,
-                    occurrences_updated=updated,
+            doc_out = None
+            if doc:
+                doc_out = PdfDocumentOut(
+                    id=doc.id,
+                    filename=doc.filename,
+                    file_hash_sha256=doc.file_hash_sha256,
+                    report_period_start=doc.report_period_start,
+                    report_period_end=doc.report_period_end,
+                    emitted_at=doc.emitted_at,
+                    page_count=doc.page_count,
+                    ocr_applied=doc.ocr_applied,
+                    ingestion_source=doc.ingestion_source,
+                    created_at=doc.created_at,
+                    occurrence_count=created + updated,
+                    parse_warnings=doc.parse_warnings or [],
+                    page_sizes=doc.page_sizes or [],
                 )
-            ]
-        )
+                if st == "created":
+                    await trigger_webhooks(
+                        db,
+                        "document.ingested",
+                        {
+                            "document_id": doc.id,
+                            "filename": doc.filename,
+                            "occurrences_created": created,
+                            "occurrences_updated": updated,
+                            "source": "WEBHOOK_API",
+                        },
+                    )
+
+            return UploadResult(
+                results=[
+                    UploadResultItem(
+                        filename=filename,
+                        status=st,
+                        document=doc_out,
+                        occurrences_created=created,
+                        occurrences_updated=updated,
+                    )
+                ]
+            )
+        finally:
+            if temp_path.exists():
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
 
     elif file:
-        filename = os.path.basename(file.filename or "relatorio.pdf")
+        filename = os.path.basename((file.filename or "relatorio.pdf").replace("\\", "/"))
         header = await file.read(5)
         if not header.startswith(b"%PDF-"):
             raise HTTPException(
@@ -110,55 +125,69 @@ async def ingest_endpoint(
             )
         await file.seek(0)
         temp_path = settings.STORAGE_DIR / f"api_ingest_{os.urandom(8).hex()}_{filename}"
-        with open(temp_path, "wb") as f_out:
-            while chunk := await file.read(65536):
-                f_out.write(chunk)
+        total_read = 0
+        try:
+            with open(temp_path, "wb") as f_out:
+                while chunk := await file.read(65536):
+                    total_read += len(chunk)
+                    if total_read > max_bytes:
+                        raise HTTPException(
+                            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                            detail=f"Arquivo {filename} excede o limite máximo de 100MB.",
+                        )
+                    f_out.write(chunk)
 
-        doc, created, updated, st = await ingest_pdf_file(
-            db, temp_path, filename, source="WEBHOOK_API"
-        )
-
-        doc_out = None
-        if doc:
-            doc_out = PdfDocumentOut(
-                id=doc.id,
-                filename=doc.filename,
-                file_hash_sha256=doc.file_hash_sha256,
-                report_period_start=doc.report_period_start,
-                report_period_end=doc.report_period_end,
-                emitted_at=doc.emitted_at,
-                page_count=doc.page_count,
-                ocr_applied=doc.ocr_applied,
-                ingestion_source=doc.ingestion_source,
-                created_at=doc.created_at,
-                occurrence_count=created + updated,
-                parse_warnings=doc.parse_warnings or [],
-                page_sizes=doc.page_sizes or [],
+            doc, created, updated, st = await ingest_pdf_file(
+                db, temp_path, filename, source="WEBHOOK_API"
             )
-            if st == "created":
-                await trigger_webhooks(
-                    db,
-                    "document.ingested",
-                    {
-                        "document_id": doc.id,
-                        "filename": doc.filename,
-                        "occurrences_created": created,
-                        "occurrences_updated": updated,
-                        "source": "WEBHOOK_API",
-                    },
-                )
 
-        return UploadResult(
-            results=[
-                UploadResultItem(
-                    filename=filename,
-                    status=st,
-                    document=doc_out,
-                    occurrences_created=created,
-                    occurrences_updated=updated,
+            doc_out = None
+            if doc:
+                doc_out = PdfDocumentOut(
+                    id=doc.id,
+                    filename=doc.filename,
+                    file_hash_sha256=doc.file_hash_sha256,
+                    report_period_start=doc.report_period_start,
+                    report_period_end=doc.report_period_end,
+                    emitted_at=doc.emitted_at,
+                    page_count=doc.page_count,
+                    ocr_applied=doc.ocr_applied,
+                    ingestion_source=doc.ingestion_source,
+                    created_at=doc.created_at,
+                    occurrence_count=created + updated,
+                    parse_warnings=doc.parse_warnings or [],
+                    page_sizes=doc.page_sizes or [],
                 )
-            ]
-        )
+                if st == "created":
+                    await trigger_webhooks(
+                        db,
+                        "document.ingested",
+                        {
+                            "document_id": doc.id,
+                            "filename": doc.filename,
+                            "occurrences_created": created,
+                            "occurrences_updated": updated,
+                            "source": "WEBHOOK_API",
+                        },
+                    )
+
+            return UploadResult(
+                results=[
+                    UploadResultItem(
+                        filename=filename,
+                        status=st,
+                        document=doc_out,
+                        occurrences_created=created,
+                        occurrences_updated=updated,
+                    )
+                ]
+            )
+        finally:
+            if temp_path.exists():
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

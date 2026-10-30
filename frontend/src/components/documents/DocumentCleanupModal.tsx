@@ -109,6 +109,7 @@ export function DocumentCleanupModal({
     const req: DocumentCleanupRequest = {
       action,
       delete_occurrences: action === 'delete_complete',
+      confirmation_challenge: action === 'delete_complete' ? confirmText.trim().toUpperCase() : undefined,
     }
 
     if (scopeType === 'selected') {

@@ -48,7 +48,7 @@ interface DashboardFilterBarProps {
   className?: string
 }
 
-function getPeriodBounds(preset: DashboardPeriodPreset): { start?: string; end?: string } {
+export function getPeriodBounds(preset: DashboardPeriodPreset): { start?: string; end?: string } {
   const now = new Date()
   const pad = (n: number) => String(n).padStart(2, '0')
   const fmt = (d: Date, endOfDay = false) =>

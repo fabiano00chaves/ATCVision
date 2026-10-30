@@ -12,6 +12,7 @@ os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///file:memtest?mode=memory&cache
 os.environ["COOKIE_SECURE"] = "false"
 os.environ["DEBUG"] = "true"
 
+from sqlalchemy.pool import StaticPool
 from app.core.config import settings
 from app.db.models import Base
 from app.db.session import get_db
@@ -21,6 +22,7 @@ from app.services.seed_data import seed_initial_data
 test_engine = create_async_engine(
     "sqlite+aiosqlite:///file:memtest?mode=memory&cache=shared&uri=true",
     connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
 )
 TestSessionLocal = async_sessionmaker(
     bind=test_engine,
