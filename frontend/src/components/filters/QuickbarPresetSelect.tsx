@@ -19,6 +19,8 @@ import {
   Flame,
   Layers,
   OctagonAlert,
+  Pencil,
+  Plus,
   Search,
   SlidersHorizontal,
   Sparkles,
@@ -35,6 +37,8 @@ interface QuickbarPresetSelectProps {
   onSelect: (preset: Preset) => void
   onClear: () => void
   onManage?: () => void
+  onEdit?: (preset: Preset) => void
+  onCreate?: () => void
   className?: string
 }
 
@@ -45,6 +49,8 @@ export function QuickbarPresetSelect({
   onSelect,
   onClear,
   onManage,
+  onEdit,
+  onCreate,
   className,
 }: QuickbarPresetSelectProps) {
   const [open, setOpen] = useState(false)
@@ -113,7 +119,7 @@ export function QuickbarPresetSelect({
           </Button>
         </DropdownMenuTrigger>
 
-        <DropdownMenuContent align="start" className="w-64 p-1 z-50 text-xs">
+        <DropdownMenuContent align="start" className="w-72 p-1 z-50 text-xs">
           <div className="text-[10px] uppercase font-bold text-muted-foreground px-2 py-1 flex items-center justify-between select-none">
             <span>Foco Rápido (Presets)</span>
             <span className="font-mono text-[9px]">{presets.length} focos</span>
@@ -149,18 +155,18 @@ export function QuickbarPresetSelect({
                     setOpen(false)
                   }}
                   className={cn(
-                    'gap-2 px-2 py-1.5 cursor-pointer rounded-sm text-xs flex items-center justify-between',
+                    'group gap-2 px-2 py-1.5 cursor-pointer rounded-sm text-xs flex items-center justify-between',
                     isSelected && 'bg-primary/10 text-primary font-bold'
                   )}
                 >
-                  <div className="flex items-center gap-2 truncate">
+                  <div className="flex items-center gap-2 truncate flex-1 min-w-0">
                     <span className={cn(isSelected ? 'text-primary' : 'text-muted-foreground')}>
                       {getPresetIcon(preset.icon, 'size-3.5')}
                     </span>
                     <span className="truncate">{preset.name}</span>
                   </div>
 
-                  <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                  <div className="flex items-center gap-1 shrink-0 ml-2">
                     <span
                       className={cn(
                         'text-[10px] px-1.5 py-0.2 rounded font-mono font-bold',
@@ -172,25 +178,56 @@ export function QuickbarPresetSelect({
                       {count}
                     </span>
                     {isSelected && <Check className="size-3 text-primary shrink-0" />}
+
+                    {onEdit && (
+                      <button
+                        type="button"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          e.preventDefault()
+                          setOpen(false)
+                          onEdit(preset)
+                        }}
+                        className="opacity-60 hover:opacity-100 hover:text-primary p-0.5 rounded hover:bg-muted text-muted-foreground transition-all ml-0.5 cursor-pointer"
+                        title={`Editar foco: ${preset.name}`}
+                      >
+                        <Pencil className="size-3" />
+                      </button>
+                    )}
                   </div>
                 </DropdownMenuItem>
               )
             })}
           </DropdownMenuGroup>
 
-          {onManage && (
+          {(onManage || onCreate) && (
             <>
               <DropdownMenuSeparator className="my-1" />
-              <DropdownMenuItem
-                onClick={() => {
-                  setOpen(false)
-                  onManage()
-                }}
-                className="gap-2 px-2 py-1.5 cursor-pointer text-muted-foreground hover:text-foreground text-[11px]"
-              >
-                <SlidersHorizontal className="size-3 text-primary" />
-                <span>Gerenciar / Criar Focos...</span>
-              </DropdownMenuItem>
+              {onCreate && (
+                <DropdownMenuItem
+                  onClick={() => {
+                    setOpen(false)
+                    onCreate()
+                  }}
+                  className="gap-2 px-2 py-1.5 cursor-pointer text-muted-foreground hover:text-foreground text-[11px]"
+                >
+                  <Plus className="size-3 text-primary" />
+                  <span>Novo Foco Rápido...</span>
+                </DropdownMenuItem>
+              )}
+              {onManage && (
+                <DropdownMenuItem
+                  onClick={() => {
+                    setOpen(false)
+                    onManage()
+                  }}
+                  className="gap-2 px-2 py-1.5 cursor-pointer text-muted-foreground hover:text-foreground text-[11px]"
+                >
+                  <SlidersHorizontal className="size-3 text-primary" />
+                  <span>Gerenciar / Editar Focos...</span>
+                </DropdownMenuItem>
+              )}
             </>
           )}
         </DropdownMenuContent>

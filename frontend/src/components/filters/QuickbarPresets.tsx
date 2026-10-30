@@ -21,7 +21,7 @@ import {
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { QuickbarPresetSelect } from '@/components/filters/QuickbarPresetSelect'
-import { PresetEditorModal } from '@/components/presets/PresetEditorModal'
+import { PresetManagerModal } from '@/components/presets/PresetManagerModal'
 
 interface QuickbarPresetsProps {
   filters: OccurrenceFilters
@@ -42,7 +42,8 @@ export function QuickbarPresets({
 }: QuickbarPresetsProps) {
   const [presets, setPresets] = useState<Preset[]>([])
   const [loading, setLoading] = useState(false)
-  const [editorOpen, setEditorOpen] = useState(false)
+  const [managerOpen, setManagerOpen] = useState(false)
+  const [selectedPresetToEdit, setSelectedPresetToEdit] = useState<Preset | null | undefined>(undefined)
 
   const {
     filterPanelMode,
@@ -144,7 +145,18 @@ export function QuickbarPresets({
                 activePresetId={filters.preset_id}
                 onSelect={handlePresetSelect}
                 onClear={handleClearActivePreset}
-                onManage={() => setEditorOpen(true)}
+                onManage={() => {
+                  setSelectedPresetToEdit(undefined)
+                  setManagerOpen(true)
+                }}
+                onCreate={() => {
+                  setSelectedPresetToEdit(null)
+                  setManagerOpen(true)
+                }}
+                onEdit={(preset) => {
+                  setSelectedPresetToEdit(preset)
+                  setManagerOpen(true)
+                }}
               />
             ) : (
               /* In collapsed mode: minimal active preset pill if selected */
@@ -236,9 +248,12 @@ export function QuickbarPresets({
         </div>
       </div>
 
-      <PresetEditorModal
-        open={editorOpen}
-        onOpenChange={setEditorOpen}
+      <PresetManagerModal
+        open={managerOpen}
+        onOpenChange={setManagerOpen}
+        initialPreset={selectedPresetToEdit}
+        activePresetId={filters.preset_id}
+        onSelectPreset={handlePresetSelect}
         onSuccess={loadPresets}
       />
     </>

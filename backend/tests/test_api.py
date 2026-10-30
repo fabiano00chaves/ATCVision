@@ -169,3 +169,34 @@ async def test_kpi_dashboards(client: AsyncClient):
     assert "total" in kpis
     assert "pane_count" in kpis
     assert "jump_count" in kpis
+
+
+@pytest.mark.asyncio
+async def test_cleanup_preview_and_execute_safety(client: AsyncClient):
+    login_resp = await client.post(
+        "/api/v1/auth/login",
+        json={"email": settings.ADMIN_EMAIL, "password": settings.ADMIN_PASSWORD},
+    )
+    cookies = login_resp.cookies
+    headers = {"X-ATC-Client": "web"}
+
+    # 1. Preview with NO scope -> must return 0 documents safely (not all docs)
+    resp = await client.post("/api/v1/documents/cleanup/preview", json={}, cookies=cookies, headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["documents_count"] == 0
+
+    # 2. Preview with empty document_ids -> must return 0 documents safely
+    resp = await client.post("/api/v1/documents/cleanup/preview", json={"document_ids": []}, cookies=cookies, headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["documents_count"] == 0
+
+    # 3. Execute cleanup with NO scope -> must be BLOCKED with 400 Bad Request
+    resp = await client.post("/api/v1/documents/cleanup", json={}, cookies=cookies, headers=headers)
+    assert resp.status_code == 400
+    assert "segurança" in resp.json()["detail"].lower()
+
+    # 4. Execute cleanup with empty document_ids -> must return 0 affected without error
+    resp = await client.post("/api/v1/documents/cleanup", json={"document_ids": []}, cookies=cookies, headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["documents_affected"] == 0
+

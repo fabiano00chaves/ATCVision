@@ -46,7 +46,7 @@ import {
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { QuickbarPresetSelect } from '@/components/filters/QuickbarPresetSelect'
-import { PresetEditorModal } from '@/components/presets/PresetEditorModal'
+import { PresetManagerModal } from '@/components/presets/PresetManagerModal'
 
 export function DailyReport() {
   const {
@@ -77,7 +77,8 @@ export function DailyReport() {
   const [presetCounts, setPresetCounts] = useState<Record<string, number>>({})
   const [totalCountInWindow, setTotalCountInWindow] = useState<number>(0)
   const [kpis, setKpis] = useState<Kpis | null>(null)
-  const [editorOpen, setEditorOpen] = useState(false)
+  const [managerOpen, setManagerOpen] = useState(false)
+  const [selectedPresetToEdit, setSelectedPresetToEdit] = useState<Preset | null | undefined>(undefined)
 
   // 1. Load Presets
   const loadPresets = async () => {
@@ -561,7 +562,18 @@ export function DailyReport() {
                     counts={presetCounts}
                     onSelect={handlePresetSelect}
                     onClear={handleClearActivePreset}
-                    onManage={() => setEditorOpen(true)}
+                    onManage={() => {
+                      setSelectedPresetToEdit(undefined)
+                      setManagerOpen(true)
+                    }}
+                    onCreate={() => {
+                      setSelectedPresetToEdit(null)
+                      setManagerOpen(true)
+                    }}
+                    onEdit={(preset) => {
+                      setSelectedPresetToEdit(preset)
+                      setManagerOpen(true)
+                    }}
                   />
                 </div>
 
@@ -643,9 +655,12 @@ export function DailyReport() {
         </div>
       </div>
 
-      <PresetEditorModal
-        open={editorOpen}
-        onOpenChange={setEditorOpen}
+      <PresetManagerModal
+        open={managerOpen}
+        onOpenChange={setManagerOpen}
+        initialPreset={selectedPresetToEdit}
+        activePresetId={filters.preset_id}
+        onSelectPreset={handlePresetSelect}
         onSuccess={loadPresets}
       />
     </div>

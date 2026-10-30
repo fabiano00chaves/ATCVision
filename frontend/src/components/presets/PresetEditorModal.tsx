@@ -172,6 +172,7 @@ export function PresetEditorModal({
         await presetsApi.create(payload)
         toast.success(`Filtro da Área "${name}" cadastrado com sucesso!`)
       }
+      window.dispatchEvent(new CustomEvent('atc:presets-changed'))
       onSuccess()
       onOpenChange(false)
     } catch (err: any) {

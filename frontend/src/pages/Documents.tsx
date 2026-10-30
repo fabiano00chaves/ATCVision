@@ -57,6 +57,7 @@ export function Documents() {
   // Modals
   const [uploadOpen, setUploadOpen] = useState(false)
   const [cleanupOpen, setCleanupOpen] = useState(false)
+  const [cleanupAction, setCleanupAction] = useState<'purge_binaries' | 'delete_complete'>('purge_binaries')
 
   // Filters & Management State
   const [search, setSearch] = useState('')
@@ -272,7 +273,10 @@ export function Documents() {
             <Button
               size="xs"
               variant="outline"
-              onClick={() => setCleanupOpen(true)}
+              onClick={() => {
+                setCleanupAction('purge_binaries')
+                setCleanupOpen(true)
+              }}
               className="gap-1 border-primary/30 hover:bg-primary/10 text-primary font-medium"
             >
               <HardDrive className="size-3.5" />
@@ -640,7 +644,10 @@ export function Documents() {
             <Button
               size="xs"
               variant="outline"
-              onClick={() => setCleanupOpen(true)}
+              onClick={() => {
+                setCleanupAction('purge_binaries')
+                setCleanupOpen(true)
+              }}
               className="gap-1.5 border-emerald-500/40 hover:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-medium"
             >
               <Sparkles className="size-3 text-emerald-500" />
@@ -650,7 +657,10 @@ export function Documents() {
             <Button
               size="xs"
               variant="destructive"
-              onClick={() => setCleanupOpen(true)}
+              onClick={() => {
+                setCleanupAction('delete_complete')
+                setCleanupOpen(true)
+              }}
               className="gap-1.5"
             >
               <Trash2 className="size-3" />
@@ -673,16 +683,19 @@ export function Documents() {
       <UploadModal open={uploadOpen} onOpenChange={setUploadOpen} onSuccess={loadData} />
 
       {/* Smart Cleanup & Sanitization Modal */}
-      <DocumentCleanupModal
-        open={cleanupOpen}
-        onOpenChange={setCleanupOpen}
-        selectedDocIds={selectedDocIds}
-        allDocuments={documents}
-        onSuccess={() => {
-          setSelectedDocIds([])
-          loadData()
-        }}
-      />
+      {cleanupOpen && (
+        <DocumentCleanupModal
+          open={cleanupOpen}
+          onOpenChange={setCleanupOpen}
+          initialAction={cleanupAction}
+          selectedDocIds={selectedDocIds}
+          allDocuments={documents}
+          onSuccess={() => {
+            setSelectedDocIds([])
+            loadData()
+          }}
+        />
+      )}
     </div>
   )
 }

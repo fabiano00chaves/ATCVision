@@ -264,8 +264,18 @@ async def preview_document_cleanup(
     current_user: User = Depends(get_current_user),
 ):
     query = select(PdfDocument)
-    if req.document_ids:
+    has_scope = False
+
+    if req.document_ids is not None:
+        if len(req.document_ids) == 0:
+            return DocumentCleanupPreviewOut(
+                documents_count=0,
+                total_bytes_to_free=0,
+                occurrences_affected=0,
+                documents=[],
+            )
         query = query.where(PdfDocument.id.in_(req.document_ids))
+        has_scope = True
     elif req.before_date:
         try:
             b_dt = datetime.fromisoformat(req.before_date)
@@ -276,14 +286,38 @@ async def preview_document_cleanup(
                     PdfDocument.created_at <= b_dt,
                 )
             )
+            has_scope = True
         except ValueError:
             pass
     elif req.older_than_days and req.older_than_days > 0:
         cutoff = datetime.now(timezone.utc) - timedelta(days=req.older_than_days)
         query = query.where(PdfDocument.created_at <= cutoff)
+        has_scope = True
+
+    if not has_scope:
+        return DocumentCleanupPreviewOut(
+            documents_count=0,
+            total_bytes_to_free=0,
+            occurrences_affected=0,
+            documents=[],
+        )
 
     res = await db.execute(query.order_by(desc(PdfDocument.created_at)))
     docs = res.scalars().all()
+
+    # Optimized batch query for occurrence counts
+    doc_ids = [d.id for d in docs]
+    occ_counts: dict[str, int] = {}
+    if doc_ids:
+        occ_cnt_res = await db.execute(
+            select(
+                OccurrencePdfMapping.pdf_document_id,
+                func.count(OccurrencePdfMapping.id),
+            )
+            .where(OccurrencePdfMapping.pdf_document_id.in_(doc_ids))
+            .group_by(OccurrencePdfMapping.pdf_document_id)
+        )
+        occ_counts = dict(occ_cnt_res.fetchall())
 
     items: List[DocumentPreviewItem] = []
     total_bytes = 0
@@ -291,12 +325,7 @@ async def preview_document_cleanup(
 
     for d in docs:
         has_bin, sz = get_doc_file_info(d)
-        occ_cnt_res = await db.execute(
-            select(func.count(OccurrencePdfMapping.id)).where(
-                OccurrencePdfMapping.pdf_document_id == d.id
-            )
-        )
-        occ_cnt = occ_cnt_res.scalar() or 0
+        occ_cnt = occ_counts.get(d.id, 0)
         total_bytes += sz
         total_occs += occ_cnt
         items.append(
@@ -326,8 +355,19 @@ async def execute_document_cleanup(
     current_user: User = Depends(get_current_user),
 ):
     query = select(PdfDocument)
-    if req.document_ids:
+    has_scope = False
+
+    if req.document_ids is not None:
+        if len(req.document_ids) == 0:
+            return DocumentCleanupResultOut(
+                documents_affected=0,
+                bytes_freed=0,
+                occurrences_deleted=0,
+                occurrences_preserved=0,
+                message="Nenhum documento selecionado para saneamento.",
+            )
         query = query.where(PdfDocument.id.in_(req.document_ids))
+        has_scope = True
     elif req.before_date:
         try:
             b_dt = datetime.fromisoformat(req.before_date)
@@ -338,11 +378,19 @@ async def execute_document_cleanup(
                     PdfDocument.created_at <= b_dt,
                 )
             )
+            has_scope = True
         except ValueError:
             pass
     elif req.older_than_days and req.older_than_days > 0:
         cutoff = datetime.now(timezone.utc) - timedelta(days=req.older_than_days)
         query = query.where(PdfDocument.created_at <= cutoff)
+        has_scope = True
+
+    if not has_scope:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Operação bloqueada por segurança: nenhum escopo de documentos foi definido para o saneamento.",
+        )
 
     res = await db.execute(query)
     docs = res.scalars().all()
