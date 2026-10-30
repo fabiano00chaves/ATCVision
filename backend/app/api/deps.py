@@ -39,6 +39,20 @@ async def get_current_user(
 
     # 2. Cloudflare Zero Trust Header (cf-access-authenticated-user-email)
     if settings.CLOUDFLARE_AUTH_ENABLED and cf_email and cf_email.strip():
+        # Security: In production, require proof that request came through Cloudflare proxy (CF-Ray or CF-JWT)
+        if settings.ENVIRONMENT == "production":
+            has_cf_evidence = bool(
+                request.headers.get("cf-ray")
+                or request.headers.get("cf-access-jwt-assertion")
+                or getattr(request.state, "cf_ray", None)
+            )
+            if not has_cf_evidence:
+                log.warning("Rejected cf-access email header without Cloudflare proxy assertion from %s", request.client)
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Requisição Cloudflare Access rejeitada por ausência de prova de borda (CF-Ray/CF-JWT).",
+                )
+
         clean_email = cf_email.strip().lower()
         u_res = await db.execute(select(User).where(User.email == clean_email))
         cf_user = u_res.scalar_one_or_none()
@@ -95,8 +109,8 @@ async def get_current_user(
             detail="Usuário da sessão não encontrado no sistema.",
         )
 
-    # 4. Auto-Login Fallback (Protected by Cloudflare Access or internal intranet)
-    if settings.AUTO_LOGIN_ENABLED:
+    # 4. Auto-Login Fallback (Restricted exclusively to development/internal sandbox environments)
+    if settings.AUTO_LOGIN_ENABLED and settings.ENVIRONMENT != "production":
         # CSRF check on state-changing methods authenticated via browser auto-login
         if request.method not in ("GET", "HEAD", "OPTIONS"):
             if not x_atc_client or x_atc_client != "web":

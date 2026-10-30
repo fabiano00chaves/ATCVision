@@ -33,8 +33,8 @@ class Settings(BaseSettings):
 
     # Cloudflare Zero Trust / Auto-Authentication
     AUTO_LOGIN_ENABLED: bool = Field(
-        default=True,
-        description="Acesso transparente sem exigir tela de login prévia quando protegido por Cloudflare Access",
+        default=False,
+        description="Acesso transparente sem exigir tela de login prévia (somente quando explicitamente ativado)",
     )
     CLOUDFLARE_AUTH_ENABLED: bool = True
 

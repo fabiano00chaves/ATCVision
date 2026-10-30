@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import html
 import io
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -35,6 +36,16 @@ FIELD_DEFINITIONS = [
     {"key": "turno_abertura", "label": "Turno e Data/Hora Abertura", "default": False},
     {"key": "tipo", "label": "Tipo de Ocorrência", "default": False},
 ]
+
+
+def sanitize_spreadsheet_formula(val: str) -> str:
+    """Neutralizes formula injection (CWE-1236) in CSV/Excel spreadsheet cells."""
+    if not val:
+        return val
+    clean = val.strip()
+    if clean and clean[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return f"'{val}"
+    return val
 
 
 def format_cell_value(occ: Occurrence, field_key: str, include_comments: bool = True) -> str:
@@ -164,13 +175,14 @@ def generate_pdf_report(
         row = []
         for f in fields:
             val = format_cell_value(occ, f["key"], include_comments=include_atc_comments)
+            esc_val = html.escape(val).replace("\n", "<br/>")
             # Style special cells
             if f["key"] == "pane" and occ.teve_pane:
-                p_text = f"<font color='#dc2626'><b>{val}</b></font>"
+                p_text = f"<font color='#dc2626'><b>{esc_val}</b></font>"
             elif f["key"] == "jump" and occ.tem_jump_force:
-                p_text = f"<font color='#d97706'><b>{val}</b></font>"
+                p_text = f"<font color='#d97706'><b>{esc_val}</b></font>"
             else:
-                p_text = val.replace("\n", "<br/>")
+                p_text = esc_val
             row.append(Paragraph(p_text, cell_style))
         table_data.append(row)
 
@@ -246,7 +258,8 @@ def generate_excel_report(
     for row_idx, occ in enumerate(occurrences, 3):
         for col_idx, f in enumerate(fields, 1):
             val = format_cell_value(occ, f["key"], include_comments=include_atc_comments)
-            cell = ws.cell(row=row_idx, column=col_idx, value=val)
+            safe_val = sanitize_spreadsheet_formula(val)
+            cell = ws.cell(row=row_idx, column=col_idx, value=safe_val)
             cell.font = Font(name="Calibri", size=9)
             cell.alignment = Alignment(vertical="top", wrap_text=True)
             cell.border = thin_border
@@ -293,7 +306,7 @@ def generate_csv_report(
 
     writer.writerow([f["label"] for f in fields])
     for occ in occurrences:
-        row = [format_cell_value(occ, f["key"], include_comments=include_atc_comments).replace("\n", " | ") for f in fields]
+        row = [sanitize_spreadsheet_formula(format_cell_value(occ, f["key"], include_comments=include_atc_comments).replace("\n", " | ")) for f in fields]
         writer.writerow(row)
 
     return output.getvalue()

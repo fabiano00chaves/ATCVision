@@ -1,0 +1,98 @@
+{
+  "project": "ATC Vision",
+  "audit_standard": "cloudflare/security-audit-skill",
+  "audit_date": "2026-10-30",
+  "auditor_role": "Senior Application Security Auditor",
+  "units": [
+    {
+      "id": "UNIT-01",
+      "component": "Authentication & Session Management",
+      "paths": [
+        "backend/app/api/deps.py",
+        "backend/app/api/v1/endpoints/auth.py",
+        "backend/app/core/security.py"
+      ],
+      "threat_library": "WEB-PROTOCOL-AND-AUTH.md",
+      "focus": ["JWT decoding", "Cookie flags", "Cloudflare Access header spoofing", "Auto-login fallback"],
+      "status": "completed"
+    },
+    {
+      "id": "UNIT-02",
+      "component": "CSRF & Security Middleware",
+      "paths": [
+        "backend/app/core/middleware.py",
+        "frontend/nginx.conf"
+      ],
+      "threat_library": "WEB-PROTOCOL-AND-AUTH.md",
+      "focus": ["X-ATC-Client verification", "CSP headers", "HSTS", "SameSite cookies", "Proxy headers"],
+      "status": "completed"
+    },
+    {
+      "id": "UNIT-03",
+      "component": "Document Management & Storage Sanitation",
+      "paths": [
+        "backend/app/api/v1/endpoints/documents.py",
+        "backend/app/services/occurrence_service.py"
+      ],
+      "threat_library": "WEB-PROTOCOL-AND-AUTH.md",
+      "focus": ["Path traversal", "RBAC deletion", "EXPURGAR challenge", "Disk space exhaustion"],
+      "status": "completed"
+    },
+    {
+      "id": "UNIT-04",
+      "component": "PDF Extraction & Ingestion Engine",
+      "paths": [
+        "backend/app/services/pdf_extractor.py",
+        "backend/app/api/v1/endpoints/ingest.py"
+      ],
+      "threat_library": "MEMORY-SAFETY-AND-BINARY.md",
+      "focus": ["PyMuPDF memory safety", "OCRmyPDF subprocess invocation", "Payload size limits (100MB)", "Temp file cleanup"],
+      "status": "completed"
+    },
+    {
+      "id": "UNIT-05",
+      "component": "Functional Locations Tree Learning Engine",
+      "paths": [
+        "backend/app/services/functional_location_service.py",
+        "backend/app/api/v1/endpoints/functional_locations.py"
+      ],
+      "threat_library": "WEB-PROTOCOL-AND-AUTH.md",
+      "focus": ["Tree recursion limits", "SQL injection / ILIKE patterns", "Data integrity"],
+      "status": "completed"
+    },
+    {
+      "id": "UNIT-06",
+      "component": "Report Generation & Export Engine",
+      "paths": [
+        "backend/app/services/report_generator.py",
+        "backend/app/api/v1/endpoints/reports.py",
+        "backend/app/api/v1/endpoints/daily.py"
+      ],
+      "threat_library": "WEB-PROTOCOL-AND-AUTH.md",
+      "focus": ["XML injection in ReportLab", "Formula injection in CSV/Excel", "Denial of service"],
+      "status": "completed"
+    },
+    {
+      "id": "UNIT-07",
+      "component": "Webhooks & External Dispatch",
+      "paths": [
+        "backend/app/services/webhook_service.py",
+        "backend/app/api/v1/endpoints/tokens_webhooks.py"
+      ],
+      "threat_library": "WEB-PROTOCOL-AND-AUTH.md",
+      "focus": ["SSRF", "Private IP destinations", "HMAC signature timing attacks"],
+      "status": "completed"
+    },
+    {
+      "id": "UNIT-08",
+      "component": "Configuration & Secrets Management",
+      "paths": [
+        "backend/app/core/config.py",
+        "docker-compose.yml"
+      ],
+      "threat_library": "WEB-PROTOCOL-AND-AUTH.md",
+      "focus": ["Hardcoded default secrets in production", "Environment variable validation"],
+      "status": "completed"
+    }
+  ]
+}

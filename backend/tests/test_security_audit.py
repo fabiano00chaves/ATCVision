@@ -441,3 +441,122 @@ async def test_functional_location_node_get_and_occurrence_filters(client: Async
     )
     assert occ_res.status_code == 200
     assert "items" in occ_res.json()
+
+
+@pytest.mark.asyncio
+async def test_cloudflare_header_spoofing_defense(client: AsyncClient):
+    """Garante que requisições em modo de produção exigem prova de borda (CF-Ray) para aceitar cf-access email."""
+    orig_env = settings.ENVIRONMENT
+    try:
+        settings.ENVIRONMENT = "production"
+        # 1. Tentativa de spoofing direto sem CF-Ray -> Deve ser rejeitada com 401
+        spoof_res = await client.get(
+            "/api/v1/auth/me",
+            headers={"cf-access-authenticated-user-email": "admin@vision.fk.adm.br"},
+        )
+        assert spoof_res.status_code == 401
+        assert "Cloudflare" in spoof_res.json()["detail"]
+
+        # 2. Requisição com CF-Ray legítimo de borda -> Aceita
+        allowed_res = await client.get(
+            "/api/v1/auth/me",
+            headers={
+                "cf-access-authenticated-user-email": "operador.legitimo@vision.fk.adm.br",
+                "CF-Ray": "87bf62c3d4e5-GRU",
+            },
+        )
+        assert allowed_res.status_code == 200
+        assert allowed_res.json()["email"] == "operador.legitimo@vision.fk.adm.br"
+    finally:
+        settings.ENVIRONMENT = orig_env
+
+
+@pytest.mark.asyncio
+async def test_reportlab_xml_special_characters_and_formula_injection(client: AsyncClient):
+    """Verifica que caracteres XML especiais não quebram o ReportLab e fórmulas são neutralizadas em planilhas."""
+    from app.db.models import Occurrence
+    from app.services.report_generator import generate_pdf_report, generate_excel_report, generate_csv_report
+
+    test_occ = Occurrence(
+        unique_sap_key="test-sec-99999",
+        tipo_ocorrencia="CORRETIVA",
+        numero_nota="900005123456",
+        numero_ordem="900039123456",
+        titulo="<script>alert(1)</script> Motor A & B com falha de 100kW > 80kW & teste",
+        posicao_funcional="=CMD|'/C calc'!A0",
+        descricao_posicao_funcional="Descricao <com tags & ampersands>",
+        teve_pane=True,
+        duracao_pane_min=15.0,
+        tem_jump_force=True,
+        jump_status="PENDENTE",
+        especialidade="ELETRICA",
+        search_text="",
+    )
+
+    # 1. PDF Report não deve lançar ExpatError
+    pdf_bytes = generate_pdf_report([test_occ], ["nota_ordem", "posicao_funcional", "titulo_resumo", "pane", "jump"])
+    assert len(pdf_bytes) > 0
+    assert pdf_bytes.startswith(b"%PDF")
+
+    # 2. Excel Report deve neutralizar fórmula com apóstrofo
+    excel_bytes = generate_excel_report([test_occ], ["posicao_funcional", "titulo_resumo"])
+    assert len(excel_bytes) > 0
+
+    # 3. CSV Report deve neutralizar fórmula com apóstrofo
+    csv_str = generate_csv_report([test_occ], ["posicao_funcional", "titulo_resumo"])
+    assert "'=CMD" in csv_str
+
+
+@pytest.mark.asyncio
+async def test_webhook_ssrf_validation(client: AsyncClient):
+    """Garante que URLs de webhooks bloqueiam destinos SSRF proibidos (metadados, loopback, intranet)."""
+    login_resp = await client.post(
+        "/api/v1/auth/login",
+        json={"email": settings.ADMIN_EMAIL, "password": settings.ADMIN_PASSWORD},
+    )
+    cookies = login_resp.cookies
+    headers = {"X-ATC-Client": "web"}
+
+    # 1. Loopback IP -> Rejeitado
+    res1 = await client.post(
+        "/api/v1/webhooks",
+        json={"name": "SSRF Loopback", "target_url": "http://127.0.0.1:8000/api/v1/internal", "events": ["test"]},
+        cookies=cookies,
+        headers=headers,
+    )
+    assert res1.status_code == 400
+    assert "SSRF" in res1.json()["detail"]
+
+    # 2. Cloud metadata IP -> Rejeitado
+    res2 = await client.post(
+        "/api/v1/webhooks",
+        json={"name": "SSRF Metadata", "target_url": "http://169.254.169.254/latest/meta-data", "events": ["test"]},
+        cookies=cookies,
+        headers=headers,
+    )
+    assert res2.status_code == 400
+    assert "SSRF" in res2.json()["detail"]
+
+    # 3. Localhost -> Rejeitado
+    res3 = await client.post(
+        "/api/v1/webhooks",
+        json={"name": "SSRF Localhost", "target_url": "http://localhost:5432/webhook", "events": ["test"]},
+        cookies=cookies,
+        headers=headers,
+    )
+    assert res3.status_code == 400
+
+    # 4. URL pública válida -> Aceita
+    res4 = await client.post(
+        "/api/v1/webhooks",
+        json={"name": "Valid Webhook", "target_url": "https://api.telegram.org/bot12345/sendMessage", "events": ["daily_report_closed"]},
+        cookies=cookies,
+        headers=headers,
+    )
+    assert res4.status_code == 201
+    wh_id = res4.json()["id"]
+
+    # Limpeza
+    del_res = await client.delete(f"/api/v1/webhooks/{wh_id}", cookies=cookies, headers=headers)
+    assert del_res.status_code == 200
+

@@ -1,0 +1,117 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/security-audit-skill/main/schemas/report-schema.json",
+  "project": "ATC Vision",
+  "audit_version": "1.0.0",
+  "audit_timestamp": "2026-10-30T19:25:00Z",
+  "status_summary": {
+    "confirmed": 5,
+    "needs_validation": 1,
+    "rejected": 2
+  },
+  "findings": [
+    {
+      "id": "SEC-CF-01",
+      "status": "confirmed",
+      "severity": "HIGH",
+      "title": "Cloudflare Access Direct-Origin Header Spoofing (CWE-290)",
+      "component": "UNIT-01 (Authentication & Session Management)",
+      "file": "backend/app/api/deps.py",
+      "line_range": "41-63",
+      "cwe": "CWE-290: Authentication Bypass by Spoofing",
+      "description": "The application trusts the 'cf-access-authenticated-user-email' header blindly without verifying 'cf-access-jwt-assertion' or validating that the connection genuinely originated from Cloudflare edge IP ranges. If direct origin access to the backend is feasible, an attacker can spoof any user email, including the administrator email.",
+      "adversarial_validation": "Validated. Sending a synthetic 'cf-access-authenticated-user-email: admin@vision.fk.adm.br' directly to the API endpoint bypasses authentication and logs in as the targeted account.",
+      "remediation": "Enforce CF-Access-JWT-Assertion signature verification or validate that the request arrived through Cloudflare proxy/shared secret before trusting cf-access-authenticated-user-email."
+    },
+    {
+      "id": "SEC-CF-02",
+      "status": "confirmed",
+      "severity": "MEDIUM",
+      "title": "Insecure Production Default AUTO_LOGIN_ENABLED Bypasses Auth (CWE-306)",
+      "component": "UNIT-01 & UNIT-08",
+      "file": "backend/app/core/config.py",
+      "line_range": "35-38",
+      "cwe": "CWE-306: Missing Authentication for Critical Function",
+      "description": "AUTO_LOGIN_ENABLED was defaulted to True in BaseSettings and docker-compose.yml. When active, any anonymous HTTP request without session cookies or bearer tokens automatically acquires the default Administrator account.",
+      "adversarial_validation": "Validated. Unauthenticated requests to /api/v1/occurrences returned HTTP 200 with the full database records rather than HTTP 401.",
+      "remediation": "Enforce AUTO_LOGIN_ENABLED=False by default in production; only permit auto-login when ENVIRONMENT is explicitly 'development' or when an explicit flag is configured."
+    },
+    {
+      "id": "SEC-CF-03",
+      "status": "confirmed",
+      "severity": "MEDIUM",
+      "title": "Unescaped XML Formatting in ReportLab PDF Generation Triggers DoS (CWE-116 / CWE-776)",
+      "component": "UNIT-06 (Report Generation & Export Engine)",
+      "file": "backend/app/services/report_generator.py",
+      "line_range": "163-176",
+      "cwe": "CWE-116: Improper Encoding or Escaping of Output",
+      "description": "User-controlled occurrence titles, notes, and comments are concatenated into ReportLab Paragraph flowables without HTML/XML escaping. If input contains unescaped ampersands ('&') or angle brackets ('<'), ReportLab's internal XML parser raises an unhandled ExpatError, crashing the report generation endpoint with HTTP 500 for all users.",
+      "adversarial_validation": "Validated. An occurrence title containing 'Motor A & B <Teste>' causes ReportLab to throw xml.parsers.expat.ExpatError.",
+      "remediation": "Wrap format_cell_value output with html.escape() before replacing newlines with <br/>."
+    },
+    {
+      "id": "SEC-CF-04",
+      "status": "confirmed",
+      "severity": "LOW",
+      "title": "CSV & Spreadsheet Formula Injection in Export Reports (CWE-1236)",
+      "component": "UNIT-06 (Report Generation & Export Engine)",
+      "file": "backend/app/services/report_generator.py",
+      "line_range": "246-260, 295-298",
+      "cwe": "CWE-1236: Improper Neutralization of Formula Elements in a CSV/Spreadsheet File",
+      "description": "Cell values in Excel (.xlsx) and CSV exports are written verbatim without sanitizing leading formula characters (=, +, -, @, \\t, \\r). An operator opening an exported spreadsheet containing a weaponized occurrence title or comment could trigger unwanted formula execution.",
+      "adversarial_validation": "Validated. Occurrence titles beginning with '=SUM(1+1)' are exported as executable spreadsheet formulas.",
+      "remediation": "Prepend a single quote (') to any string cell value that starts with =, +, -, @, \\t, or \\r."
+    },
+    {
+      "id": "SEC-CF-05",
+      "status": "confirmed",
+      "severity": "MEDIUM",
+      "title": "Server-Side Request Forgery (SSRF) in Outgoing Webhook Dispatch (CWE-918)",
+      "component": "UNIT-07 (Webhooks & External Dispatch)",
+      "file": "backend/app/api/v1/endpoints/tokens_webhooks.py",
+      "line_range": "90-105",
+      "cwe": "CWE-918: Server-Side Request Forgery (SSRF)",
+      "description": "The webhook creation and update endpoints accepted arbitrary target URLs without checking for internal/loopback IP addresses (127.0.0.1, localhost, 169.254.169.254 cloud metadata, or Docker network internal hostnames).",
+      "adversarial_validation": "Validated. Target URL 'http://169.254.169.254/latest/meta-data/' was accepted by WebhookCreate schema.",
+      "remediation": "Add an SSRF validator enforcing http/https schemes and disallowing private IP ranges, loopback addresses, and cloud metadata endpoints."
+    },
+    {
+      "id": "SEC-CF-06",
+      "status": "needs_validation",
+      "severity": "LOW",
+      "title": "Default Fallback Secret Keys in Production Configuration (CWE-798)",
+      "component": "UNIT-08 (Configuration & Secrets Management)",
+      "file": "backend/app/core/config.py",
+      "line_range": "27-28, 42",
+      "cwe": "CWE-798: Use of Hard-coded Credentials",
+      "description": "JWT_SECRET_KEY and MASTER_API_KEY specify default placeholder strings. If a production environment is launched without passing environment variables, these defaults would be active.",
+      "adversarial_validation": "Needs validation in deployment harness: docker-compose.yml defines ${JWT_SECRET_KEY:-change_this...}, requiring production deployment pipelines to supply high-entropy secrets.",
+      "remediation": "Add a startup validator logging a critical warning or refusing to start when ENVIRONMENT == 'production' and secrets match the insecure placeholder."
+    },
+    {
+      "id": "SEC-CF-REJ-01",
+      "status": "rejected",
+      "severity": "INFO",
+      "title": "Arbitrary File Read via /documents/{id}/file",
+      "component": "UNIT-03",
+      "file": "backend/app/api/v1/endpoints/documents.py",
+      "line_range": "553-578",
+      "cwe": "CWE-22: Path Traversal",
+      "description": "Candidate vulnerability suspected path traversal in PDF file serving.",
+      "adversarial_validation": "Disproven. The endpoint queries the database for PdfDocument.id and uses the internally stored storage_path/ocr_storage_path without accepting user-controlled path parameters. No path traversal is possible.",
+      "remediation": "None needed."
+    },
+    {
+      "id": "SEC-CF-REJ-02",
+      "status": "rejected",
+      "severity": "INFO",
+      "title": "Command Injection in OCRmyPDF Invocation",
+      "component": "UNIT-04",
+      "file": "backend/app/services/pdf_extractor.py",
+      "line_range": "1291-1301",
+      "cwe": "CWE-78: OS Command Injection",
+      "description": "Candidate vulnerability suspected command injection in OCR execution.",
+      "adversarial_validation": "Disproven. The command is invoked with subprocess.run(..., shell=False) with an argument list, and paths are preceded by '--' to prevent argument injection. No shell injection is possible.",
+      "remediation": "None needed."
+    }
+  ]
+}

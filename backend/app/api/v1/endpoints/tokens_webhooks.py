@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import secrets
 from typing import List
+from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -77,6 +79,56 @@ async def revoke_api_token(
 
 # ---------- Webhooks ----------
 
+BLOCKED_SSRF_HOSTS = {
+    "localhost",
+    "127.0.0.1",
+    "::1",
+    "169.254.169.254",
+    "metadata.google.internal",
+    "instance-data",
+    "db",
+    "backend",
+    "atc-vision-db",
+    "atc-vision-backend",
+}
+
+
+def validate_webhook_url(url: str) -> str:
+    cleaned = url.strip()
+    try:
+        parsed = urlparse(cleaned)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="URL de webhook inválida")
+
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Protocolo do webhook deve ser HTTP ou HTTPS",
+        )
+
+    hostname = (parsed.hostname or "").lower()
+    if not hostname:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Hostname ausente na URL do webhook")
+
+    if hostname in BLOCKED_SSRF_HOSTS or hostname.endswith(".local") or hostname.endswith(".internal"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Destino do webhook não permitido por política de segurança SSRF",
+        )
+
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Destino do webhook não permitido por política de segurança SSRF (endereço privado/loopback)",
+            )
+    except ValueError:
+        pass
+
+    return cleaned
+
+
 @router.get("/webhooks", response_model=List[WebhookOut])
 async def list_webhooks(
     db: AsyncSession = Depends(get_db),
@@ -93,9 +145,10 @@ async def create_webhook(
     db: AsyncSession = Depends(get_db),
     current_admin: User = Depends(get_current_admin),
 ):
+    safe_url = validate_webhook_url(payload.target_url)
     wh = Webhook(
         name=payload.name.strip(),
-        target_url=payload.target_url.strip(),
+        target_url=safe_url,
         events=payload.events,
         is_active=payload.is_active,
     )
@@ -120,7 +173,7 @@ async def update_webhook(
     if payload.name is not None:
         wh.name = payload.name.strip()
     if payload.target_url is not None:
-        wh.target_url = payload.target_url.strip()
+        wh.target_url = validate_webhook_url(payload.target_url)
     if payload.events is not None:
         wh.events = payload.events
     if payload.is_active is not None:
