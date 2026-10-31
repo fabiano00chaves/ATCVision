@@ -151,6 +151,13 @@ class Occurrence(Base):
         order_by="OccurrenceComment.created_at.desc()"
     )
 
+    __table_args__ = (
+        Index("idx_occurrences_abertura_especialidade", "abertura_timestamp", "especialidade"),
+        Index("idx_occurrences_pf_abertura", "posicao_funcional", "abertura_timestamp"),
+        Index("idx_occurrences_pane_abertura", "teve_pane", "abertura_timestamp"),
+        Index("idx_occurrences_planta_abertura", "arvore_planta", "abertura_timestamp"),
+    )
+
 
 class OccurrencePdfMapping(Base):
     __tablename__ = "occurrence_pdf_mappings"
@@ -278,5 +285,10 @@ class FunctionalLocation(Base):
         "FunctionalLocation",
         back_populates="children",
         remote_side=[full_code],
+    )
+
+    __table_args__ = (
+        Index("idx_fl_parent_segment", "parent_code", "segment_code"),
+        Index("idx_fl_planta_level", "arvore_planta", "level"),
     )
 

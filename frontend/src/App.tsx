@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ErrorBoundary } from '@/components/common/ErrorBoundary'
@@ -8,14 +8,27 @@ import { WorkspaceLayoutProvider } from '@/context/WorkspaceLayoutContext'
 import { Toaster } from 'sonner'
 import { AuthProvider, useAuth } from '@/context/AuthContext'
 import { AppShell } from '@/components/layout/AppShell'
-import { Login } from '@/pages/Login'
-import { DailyReport } from '@/pages/DailyReport'
-import { Occurrences } from '@/pages/Occurrences'
-import { Dashboards } from '@/pages/Dashboards'
-import { Reports } from '@/pages/Reports'
-import { Documents } from '@/pages/Documents'
-import { Settings } from '@/pages/Settings'
 import { Loader2 } from 'lucide-react'
+
+// Code-split dynamic page imports for optimal initial bundle size
+const Login = React.lazy(() => import('@/pages/Login').then((m) => ({ default: m.Login })))
+const DailyReport = React.lazy(() => import('@/pages/DailyReport').then((m) => ({ default: m.DailyReport })))
+const Occurrences = React.lazy(() => import('@/pages/Occurrences').then((m) => ({ default: m.Occurrences })))
+const Dashboards = React.lazy(() => import('@/pages/Dashboards').then((m) => ({ default: m.Dashboards })))
+const Reports = React.lazy(() => import('@/pages/Reports').then((m) => ({ default: m.Reports })))
+const Documents = React.lazy(() => import('@/pages/Documents').then((m) => ({ default: m.Documents })))
+const Settings = React.lazy(() => import('@/pages/Settings').then((m) => ({ default: m.Settings })))
+
+function PageFallback() {
+  return (
+    <div className="flex h-[calc(100vh-4rem)] w-full items-center justify-center text-muted-foreground">
+      <div className="flex flex-col items-center gap-3">
+        <Loader2 className="size-7 animate-spin text-primary" />
+        <span className="text-xs font-mono">Carregando visão ATC...</span>
+      </div>
+    </div>
+  )
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -73,26 +86,28 @@ export function App() {
             <SidebarProvider>
               <WorkspaceLayoutProvider>
                 <BrowserRouter>
-                  <Routes>
-                    <Route
-                      path="/login"
-                      element={
-                        <PublicOnlyRoute>
-                          <Login />
-                        </PublicOnlyRoute>
-                      }
-                    />
-                    <Route element={<ProtectedLayout />}>
-                      <Route path="/" element={<DailyReport />} />
-                      <Route path="/ocorrencias" element={<Occurrences />} />
-                      <Route path="/ocorrencias/:id" element={<Occurrences />} />
-                      <Route path="/dashboards" element={<Dashboards />} />
-                      <Route path="/relatorios" element={<Reports />} />
-                      <Route path="/documentos" element={<Documents />} />
-                      <Route path="/config" element={<Settings />} />
-                    </Route>
-                    <Route path="*" element={<Navigate to="/" replace />} />
-                  </Routes>
+                  <Suspense fallback={<PageFallback />}>
+                    <Routes>
+                      <Route
+                        path="/login"
+                        element={
+                          <PublicOnlyRoute>
+                            <Login />
+                          </PublicOnlyRoute>
+                        }
+                      />
+                      <Route element={<ProtectedLayout />}>
+                        <Route path="/" element={<DailyReport />} />
+                        <Route path="/ocorrencias" element={<Occurrences />} />
+                        <Route path="/ocorrencias/:id" element={<Occurrences />} />
+                        <Route path="/dashboards" element={<Dashboards />} />
+                        <Route path="/relatorios" element={<Reports />} />
+                        <Route path="/documentos" element={<Documents />} />
+                        <Route path="/config" element={<Settings />} />
+                      </Route>
+                      <Route path="*" element={<Navigate to="/" replace />} />
+                    </Routes>
+                  </Suspense>
                 </BrowserRouter>
                 <Toaster richColors position="top-right" closeButton theme="dark" />
               </WorkspaceLayoutProvider>

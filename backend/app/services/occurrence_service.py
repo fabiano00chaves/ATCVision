@@ -9,7 +9,10 @@ from datetime import date, datetime, time, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import fitz
+try:
+    import pymupdf as fitz
+except ImportError:
+    import fitz
 from sqlalchemy import (
     and_,
     case,

@@ -23,6 +23,26 @@ export default defineConfig({
   },
   build: {
     target: 'es2022',
-    chunkSizeWarningLimit: 1500,
+    chunkSizeWarningLimit: 2000,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('pdfjs-dist') || id.includes('react-pdf')) {
+              return 'vendor-pdf'
+            }
+            if (id.includes('recharts') || id.includes('d3-')) {
+              return 'vendor-charts'
+            }
+            if (id.includes('lucide-react')) {
+              return 'vendor-icons'
+            }
+            if (id.includes('@tanstack/react-query')) {
+              return 'vendor-query'
+            }
+          }
+        },
+      },
+    },
   },
 })
