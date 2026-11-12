@@ -150,8 +150,10 @@ async def generate_report(
 
     if req.occurrence_ids:
         query = base_query.where(Occurrence.id.in_(req.occurrence_ids))
+        sort_key = "abertura_desc"
     else:
         filters = dict(req.filters or {})
+        sort_key = str(filters.pop("sort", None) or "abertura_desc")
         # Scope filtering
         if req.scope == "relevant_or_analyze":
             filters["only_relevant"] = False
@@ -162,10 +164,12 @@ async def generate_report(
             filters["only_relevant"] = True
         elif req.scope == "analyze":
             filters["only_analyze"] = True
+        elif req.scope == "meeting":
+            filters["only_meeting"] = True
 
         query = await apply_occurrence_filters(base_query, filters, db)
 
-    query = apply_occurrence_sorting(query, "abertura_desc")
+    query = apply_occurrence_sorting(query, sort_key)
     res = await db.execute(query)
     occurrences = res.scalars().all()
 

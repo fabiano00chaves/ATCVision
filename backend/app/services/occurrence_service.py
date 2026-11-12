@@ -5,9 +5,9 @@ import logging
 import os
 import re
 import shutil
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 try:
     import pymupdf as fitz
@@ -18,6 +18,7 @@ from sqlalchemy import (
     case,
     delete,
     desc,
+    exists,
     func,
     or_,
     select,
@@ -55,6 +56,62 @@ def calculate_sha256(filepath: Path) -> str:
         while chunk := f.read(65536):
             hasher.update(chunk)
     return hasher.hexdigest()
+
+
+_TEXT_CONFIRM_DT_RE = re.compile(
+    r"(?:^|\n)\s*(\d{2})[./](\d{2})[./](\d{4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?"
+)
+
+
+def compute_confirmation_bounds(
+    confirmations: Iterable[Any],
+    texto_confirmacao: Optional[str] = None,
+) -> Tuple[Optional[datetime], Optional[datetime]]:
+    """
+    Computes the earliest and latest confirmation datetimes by combining
+    structured SAP confirmation table rows and SAP confirmation text log headers
+    (e.g. '10.11.2026 16:35:05 99021165'). If a date has both a 00:00:00 table row
+    and an explicit time from confirmation text logs, preserves the explicit time.
+    """
+    candidates: List[datetime] = []
+
+    for c in confirmations or []:
+        d = getattr(c, "data_execucao", None)
+        if d is None:
+            continue
+        t = getattr(c, "hora_execucao", None) or time(0, 0, 0)
+        try:
+            dt = datetime.combine(d, t)
+            if 2000 <= dt.year <= 2100:
+                candidates.append(dt)
+        except Exception:
+            pass
+
+    if texto_confirmacao:
+        for m in _TEXT_CONFIRM_DT_RE.finditer(texto_confirmacao):
+            try:
+                day_i, mon_i, year_i = int(m.group(1)), int(m.group(2)), int(m.group(3))
+                if not (2000 <= year_i <= 2100):
+                    continue
+                hour_i = int(m.group(4)) if m.group(4) is not None else 0
+                min_i = int(m.group(5)) if m.group(5) is not None else 0
+                sec_i = int(m.group(6)) if m.group(6) is not None else 0
+                dt = datetime(year_i, mon_i, day_i, hour_i, min_i, sec_i)
+                candidates.append(dt)
+            except ValueError:
+                continue
+
+    if not candidates:
+        return None, None
+
+    non_midnight_dates = {dt.date() for dt in candidates if dt.time() != time(0, 0, 0)}
+    refined = [
+        dt
+        for dt in candidates
+        if dt.time() != time(0, 0, 0) or dt.date() not in non_midnight_dates
+    ]
+    pool = refined or candidates
+    return min(pool), max(pool)
 
 
 def build_search_text(occ: ParsedOccurrence) -> str:
@@ -264,6 +321,17 @@ async def ingest_pdf_file(
                         )
                     )
 
+            conf_min, conf_max = compute_confirmation_bounds(
+                parsed_occ.confirmations or existing_occ.confirmations,
+                parsed_occ.texto_confirmacao or existing_occ.texto_confirmacao,
+            )
+            if conf_min is not None:
+                if existing_occ.primeira_confirmacao_em is None or conf_min < existing_occ.primeira_confirmacao_em:
+                    existing_occ.primeira_confirmacao_em = conf_min
+            if conf_max is not None:
+                if existing_occ.ultima_confirmacao_em is None or conf_max > existing_occ.ultima_confirmacao_em:
+                    existing_occ.ultima_confirmacao_em = conf_max
+
             # Add mapping for this PDF if not present
             mapping = OccurrencePdfMapping(
                 occurrence_id=existing_occ.id,
@@ -276,6 +344,10 @@ async def ingest_pdf_file(
             updated_count += 1
         else:
             # Create new occurrence
+            conf_min, conf_max = compute_confirmation_bounds(
+                parsed_occ.confirmations,
+                parsed_occ.texto_confirmacao,
+            )
             new_occ = Occurrence(
                 unique_sap_key=key,
                 tipo_ocorrencia=parsed_occ.tipo_ocorrencia,
@@ -316,10 +388,13 @@ async def ingest_pdf_file(
                 jump_status="PENDENTE" if parsed_occ.tem_jump_force else None,
                 hh_total_minutos=parsed_occ.hh_total_minutos,
                 quantidade_executantes=parsed_occ.quantidade_executantes,
+                primeira_confirmacao_em=conf_min,
+                ultima_confirmacao_em=conf_max,
                 operacoes=parsed_occ.operacoes,
                 objetos=parsed_occ.objetos,
                 flag_analisar=False,
                 flag_relevante=False,
+                flag_destaque_reuniao=False,
                 status_atc="NOVO",
                 prioridade_atc=None,
                 tags_customizadas=[],
@@ -404,20 +479,77 @@ async def apply_occurrence_filters(
                     filters[k] = v
 
     start = filters.get("start")
+    end = filters.get("end")
+    dt_start: Optional[datetime] = None
+    dt_end: Optional[datetime] = None
     if start:
         try:
             dt_start = datetime.fromisoformat(str(start).replace("Z", ""))
-            query = query.where(Occurrence.abertura_timestamp >= dt_start)
         except ValueError:
             pass
-
-    end = filters.get("end")
     if end:
         try:
             dt_end = datetime.fromisoformat(str(end).replace("Z", ""))
-            query = query.where(Occurrence.abertura_timestamp < dt_end)
         except ValueError:
             pass
+
+    if dt_start is not None or dt_end is not None:
+        date_mode = str(filters.get("date_mode") or "abertura").lower()
+
+        opening_conds = []
+        if dt_start is not None:
+            opening_conds.append(Occurrence.abertura_timestamp >= dt_start)
+        if dt_end is not None:
+            opening_conds.append(Occurrence.abertura_timestamp < dt_end)
+        opening_clause = and_(*opening_conds) if opening_conds else None
+
+        if date_mode in ("confirmacao", "atividade"):
+            start_date = dt_start.date() if dt_start is not None else None
+            end_date = (dt_end - timedelta(seconds=1)).date() if dt_end is not None else None
+
+            exact_conf_conds = [Occurrence.ultima_confirmacao_em.isnot(None)]
+            if dt_start is not None:
+                exact_conf_conds.append(Occurrence.ultima_confirmacao_em >= dt_start)
+            if dt_end is not None:
+                exact_conf_conds.append(Occurrence.ultima_confirmacao_em < dt_end)
+
+            midnight_conds = [
+                Occurrence.ultima_confirmacao_em.isnot(None),
+                func.extract("hour", Occurrence.ultima_confirmacao_em) == 0,
+                func.extract("minute", Occurrence.ultima_confirmacao_em) == 0,
+                func.extract("second", Occurrence.ultima_confirmacao_em) == 0,
+            ]
+            if start_date is not None:
+                midnight_conds.append(Occurrence.ultima_confirmacao_em >= datetime.combine(start_date, time(0, 0, 0)))
+            if end_date is not None:
+                midnight_conds.append(Occurrence.ultima_confirmacao_em <= datetime.combine(end_date, time(0, 0, 0)))
+
+            conf_row_conds = [
+                OccurrenceConfirmation.occurrence_id == Occurrence.id,
+                OccurrenceConfirmation.data_execucao.isnot(None),
+                or_(
+                    OccurrenceConfirmation.hora_execucao.is_(None),
+                    OccurrenceConfirmation.hora_execucao == time(0, 0, 0),
+                ),
+            ]
+            if start_date is not None:
+                conf_row_conds.append(OccurrenceConfirmation.data_execucao >= start_date)
+            if end_date is not None:
+                conf_row_conds.append(OccurrenceConfirmation.data_execucao <= end_date)
+
+            conf_clause = or_(
+                and_(*exact_conf_conds),
+                and_(*midnight_conds),
+                exists(select(OccurrenceConfirmation.id).where(*conf_row_conds)),
+            )
+
+            if date_mode == "confirmacao":
+                query = query.where(conf_clause)
+            else:  # "atividade": opened OR confirmed within the period
+                query = query.where(or_(opening_clause, conf_clause))
+        else:
+            if opening_clause is not None:
+                query = query.where(opening_clause)
 
     doc_ids = parse_csv_param(filters.get("document_ids"))
     if doc_ids:
@@ -542,19 +674,83 @@ async def apply_occurrence_filters(
     if to_bool(filters.get("only_analyze")):
         query = query.where(Occurrence.flag_analisar.is_(True))
 
+    if to_bool(filters.get("only_meeting")):
+        query = query.where(Occurrence.flag_destaque_reuniao.is_(True))
+
     return query
 
 
 def apply_occurrence_sorting(query, sort_key: Optional[str] = "abertura_desc"):
     if sort_key == "abertura_asc":
-        return query.order_by(Occurrence.abertura_timestamp.asc().nulls_last())
+        return query.order_by(
+            Occurrence.abertura_timestamp.asc().nulls_last(),
+            Occurrence.numero_ordem.asc().nulls_last(),
+        )
+    elif sort_key == "confirmacao_desc":
+        return query.order_by(
+            Occurrence.ultima_confirmacao_em.desc().nulls_last(),
+            Occurrence.abertura_timestamp.desc().nulls_last(),
+        )
+    elif sort_key == "confirmacao_asc":
+        return query.order_by(
+            Occurrence.ultima_confirmacao_em.asc().nulls_last(),
+            Occurrence.abertura_timestamp.asc().nulls_last(),
+        )
+    elif sort_key == "atividade_desc":
+        return query.order_by(
+            func.coalesce(Occurrence.ultima_confirmacao_em, Occurrence.abertura_timestamp).desc().nulls_last(),
+            Occurrence.abertura_timestamp.desc().nulls_last(),
+        )
+    elif sort_key == "arvore_asc":
+        return query.order_by(
+            Occurrence.arvore_planta.asc().nulls_last(),
+            Occurrence.posicao_funcional.asc().nulls_last(),
+            Occurrence.abertura_timestamp.desc().nulls_last(),
+            Occurrence.numero_ordem.asc().nulls_last(),
+        )
+    elif sort_key == "arvore_desc":
+        return query.order_by(
+            Occurrence.arvore_planta.desc().nulls_last(),
+            Occurrence.posicao_funcional.desc().nulls_last(),
+            Occurrence.abertura_timestamp.desc().nulls_last(),
+        )
+    elif sort_key == "arvore_abertura_asc":
+        return query.order_by(
+            Occurrence.arvore_planta.asc().nulls_last(),
+            Occurrence.posicao_funcional.asc().nulls_last(),
+            Occurrence.abertura_timestamp.asc().nulls_last(),
+            Occurrence.numero_ordem.asc().nulls_last(),
+        )
+    elif sort_key == "data_desc_arvore":
+        return query.order_by(
+            Occurrence.data_abertura.desc().nulls_last(),
+            Occurrence.arvore_planta.asc().nulls_last(),
+            Occurrence.posicao_funcional.asc().nulls_last(),
+            Occurrence.hora_abertura.asc().nulls_last(),
+            Occurrence.numero_ordem.asc().nulls_last(),
+        )
+    elif sort_key == "data_asc_arvore":
+        return query.order_by(
+            Occurrence.data_abertura.asc().nulls_last(),
+            Occurrence.arvore_planta.asc().nulls_last(),
+            Occurrence.posicao_funcional.asc().nulls_last(),
+            Occurrence.hora_abertura.asc().nulls_last(),
+            Occurrence.numero_ordem.asc().nulls_last(),
+        )
     elif sort_key == "pane_desc":
-        return query.order_by(Occurrence.duracao_pane_min.desc(), Occurrence.abertura_timestamp.desc())
+        return query.order_by(
+            Occurrence.duracao_pane_min.desc(),
+            Occurrence.abertura_timestamp.desc().nulls_last(),
+        )
     elif sort_key == "relevance":
         return query.order_by(
+            Occurrence.flag_destaque_reuniao.desc(),
             Occurrence.flag_relevante.desc(),
             Occurrence.flag_analisar.desc(),
-            Occurrence.abertura_timestamp.desc(),
+            Occurrence.abertura_timestamp.desc().nulls_last(),
         )
     else:  # abertura_desc default
-        return query.order_by(Occurrence.abertura_timestamp.desc().nulls_last())
+        return query.order_by(
+            Occurrence.abertura_timestamp.desc().nulls_last(),
+            Occurrence.numero_ordem.desc().nulls_last(),
+        )

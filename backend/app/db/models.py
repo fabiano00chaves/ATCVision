@@ -122,6 +122,8 @@ class Occurrence(Base):
 
     hh_total_minutos: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     quantidade_executantes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    primeira_confirmacao_em: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    ultima_confirmacao_em: Mapped[Optional[datetime]] = mapped_column(DateTime, index=True, nullable=True)
 
     operacoes: Mapped[List[Dict[str, str]]] = mapped_column(JSON, default=list, nullable=False)
     objetos: Mapped[List[Dict[str, Any]]] = mapped_column(JSON, default=list, nullable=False)
@@ -129,6 +131,7 @@ class Occurrence(Base):
     # ATC Management Flags (preserved during upserts)
     flag_analisar: Mapped[bool] = mapped_column(Boolean, default=False, index=True, nullable=False)
     flag_relevante: Mapped[bool] = mapped_column(Boolean, default=False, index=True, nullable=False)
+    flag_destaque_reuniao: Mapped[bool] = mapped_column(Boolean, default=False, index=True, nullable=False)
     status_atc: Mapped[str] = mapped_column(String(32), default="NOVO", index=True, nullable=False)
     prioridade_atc: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     tags_customizadas: Mapped[List[str]] = mapped_column(JSON, default=list, nullable=False)
@@ -156,6 +159,8 @@ class Occurrence(Base):
         Index("idx_occurrences_pf_abertura", "posicao_funcional", "abertura_timestamp"),
         Index("idx_occurrences_pane_abertura", "teve_pane", "abertura_timestamp"),
         Index("idx_occurrences_planta_abertura", "arvore_planta", "abertura_timestamp"),
+        Index("idx_occurrences_confirmacao_esp", "ultima_confirmacao_em", "especialidade"),
+        Index("idx_occurrences_reuniao_abertura", "flag_destaque_reuniao", "abertura_timestamp"),
     )
 
 

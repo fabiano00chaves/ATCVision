@@ -136,12 +136,16 @@ export interface OccurrenceSummary {
   jump_status: JumpStatus
   hh_total_minutos: number
   quantidade_executantes: number
+  primeira_confirmacao_em?: string | null
+  ultima_confirmacao_em?: string | null
   flag_analisar: boolean
   flag_relevante: boolean
+  flag_destaque_reuniao?: boolean
   status_atc: StatusATC
   prioridade_atc: PrioridadeATC | null
   tags_customizadas: string[]
   comment_count: number
+  same_location_count?: number
   snippet: string | null
   document_ids: string[]
   primary_document_id: string | null
@@ -252,6 +256,7 @@ export interface OccurrenceDetail extends OccurrenceSummary {
 export interface OccurrencePatch {
   flag_analisar?: boolean
   flag_relevante?: boolean
+  flag_destaque_reuniao?: boolean
   status_atc?: StatusATC
   prioridade_atc?: PrioridadeATC | null
   tags_customizadas?: string[]
@@ -268,12 +273,27 @@ export interface Neighbors {
   next_id: string | null
 }
 
-export type SortKey = 'abertura_desc' | 'abertura_asc' | 'relevance' | 'pane_desc'
+export type SortKey =
+  | 'abertura_desc'
+  | 'abertura_asc'
+  | 'atividade_desc'
+  | 'confirmacao_desc'
+  | 'confirmacao_asc'
+  | 'arvore_asc'
+  | 'arvore_desc'
+  | 'arvore_abertura_asc'
+  | 'data_desc_arvore'
+  | 'data_asc_arvore'
+  | 'pane_desc'
+  | 'relevance'
+
+export type DateMode = 'atividade' | 'abertura' | 'confirmacao'
 
 /** Shared filter query params */
 export interface OccurrenceFilters {
   start?: string
   end?: string
+  date_mode?: DateMode
   document_ids?: string[]
   q?: string
   nota?: string
@@ -291,6 +311,7 @@ export interface OccurrenceFilters {
   only_jump?: boolean
   only_relevant?: boolean
   only_analyze?: boolean
+  only_meeting?: boolean
   preset_id?: string
   sort?: SortKey
 }
@@ -354,6 +375,8 @@ export interface Kpis {
   pane_total_min: number
   jump_count: number
   jump_pendentes: number
+  meeting_count?: number
+  relevant_count?: number
   hh_total_min: number
   mttr_min: number | null
   mttr_by_arvore: { arvore: string; mttr_min: number | null; count: number }[]
@@ -407,8 +430,9 @@ export type ReportFieldKey =
   | 'defeito_causa'
   | 'status_atc'
   | 'turno_abertura'
+  | 'datas_cronologia'
   | 'tipo'
-export type ReportScope = 'relevant_or_analyze' | 'relevant' | 'analyze' | 'all'
+export type ReportScope = 'relevant_or_analyze' | 'relevant' | 'analyze' | 'meeting' | 'all'
 
 export interface ReportTemplate {
   id: string

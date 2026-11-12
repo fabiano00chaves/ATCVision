@@ -58,6 +58,7 @@ export function countActiveFilters(f: OccurrenceFilters): number {
     (f.only_jump ? 1 : 0) +
     (f.only_relevant ? 1 : 0) +
     (f.only_analyze ? 1 : 0) +
+    (f.only_meeting ? 1 : 0) +
     (f.start || f.end ? 1 : 0) +
     (f.q?.trim() ? 1 : 0)
   )

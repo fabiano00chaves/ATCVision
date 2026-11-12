@@ -21,6 +21,7 @@ import {
   Layers,
   MapPin,
   OctagonAlert,
+  Presentation,
   RotateCcw,
   Search,
   Star,
@@ -52,7 +53,7 @@ export function sectionActiveCount(id: FilterSectionId, f: OccurrenceFilters): n
     case 'period':
       return f.start || f.end ? 1 : 0
     case 'flags':
-      return [f.only_pane, f.only_jump, f.only_relevant, f.only_analyze].filter(Boolean).length
+      return [f.only_pane, f.only_jump, f.only_relevant, f.only_analyze, f.only_meeting].filter(Boolean).length
     case 'pf':
       return f.fl_prefixes?.length || 0
     case 'arvores':
@@ -227,6 +228,7 @@ export function FilterPanel({ filters, onChange, showPeriod = true, onPresetSave
     !!filters.only_jump ||
     !!filters.only_relevant ||
     !!filters.only_analyze ||
+    !!filters.only_meeting ||
     (showPeriod && (!!filters.start || !!filters.end))
 
   const clearAll = () => {
@@ -241,12 +243,14 @@ export function FilterPanel({ filters, onChange, showPeriod = true, onPresetSave
       'only_jump',
       'only_relevant',
       'only_analyze',
+      'only_meeting',
       'preset_id',
     ] as const)
       delete next[k]
     if (showPeriod) {
       delete next.start
       delete next.end
+      delete next.date_mode
     }
     try {
       localStorage.removeItem(PREFERRED_PRESET_KEY)
@@ -273,7 +277,7 @@ export function FilterPanel({ filters, onChange, showPeriod = true, onPresetSave
     switch (id) {
       case 'period':
         return (
-          <Section key={id} {...common} onClear={() => set({ start: undefined, end: undefined })}>
+          <Section key={id} {...common} onClear={() => set({ start: undefined, end: undefined, date_mode: undefined })}>
             <div className="grid grid-cols-5 gap-1 mb-2">
               {(
                 [
@@ -294,7 +298,7 @@ export function FilterPanel({ filters, onChange, showPeriod = true, onPresetSave
                 </button>
               ))}
             </div>
-            <div className="grid grid-cols-2 gap-1.5">
+            <div className="grid grid-cols-2 gap-1.5 mb-2">
               <label className="text-[10px] text-muted-foreground space-y-0.5">
                 <span>De</span>
                 <Input
@@ -314,6 +318,39 @@ export function FilterPanel({ filters, onChange, showPeriod = true, onPresetSave
                 />
               </label>
             </div>
+            {/* Date field criteria reconciliation */}
+            <div className="space-y-1">
+              <span className="text-[10px] text-muted-foreground block font-medium">
+                Critério de Data:
+              </span>
+              <div className="grid grid-cols-3 gap-1">
+                {(
+                  [
+                    ['atividade', 'Ab. + Conf.', 'Considera abertura OU confirmação no período'],
+                    ['abertura', 'Abertura', 'Somente data de abertura no SAP'],
+                    ['confirmacao', 'Confirmação', 'Somente data da confirmação/execução'],
+                  ] as const
+                ).map(([dm, label, tip]) => {
+                  const active = (filters.date_mode || 'abertura') === dm
+                  return (
+                    <button
+                      key={dm}
+                      type="button"
+                      title={tip}
+                      onClick={() => set({ date_mode: dm })}
+                      className={cn(
+                        'px-1 py-1 rounded text-[10px] font-semibold border transition-colors cursor-pointer truncate',
+                        active
+                          ? 'bg-primary text-primary-foreground border-primary'
+                          : 'bg-muted/30 border-border/60 text-muted-foreground hover:text-foreground'
+                      )}
+                    >
+                      {label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
           </Section>
         )
       case 'flags':
@@ -322,12 +359,19 @@ export function FilterPanel({ filters, onChange, showPeriod = true, onPresetSave
             key={id}
             {...common}
             onClear={() =>
-              set({ only_pane: undefined, only_jump: undefined, only_relevant: undefined, only_analyze: undefined })
+              set({
+                only_pane: undefined,
+                only_jump: undefined,
+                only_relevant: undefined,
+                only_analyze: undefined,
+                only_meeting: undefined,
+              })
             }
           >
             <div className="grid grid-cols-2 gap-1.5">
               {(
                 [
+                  ['only_meeting', 'Pauta Reunião', Presentation, 'text-violet-500'],
                   ['only_pane', 'Panes', OctagonAlert, 'text-red-500'],
                   ['only_jump', 'Jumps / Forces', AlertTriangle, 'text-amber-500'],
                   ['only_relevant', 'Relevantes', Star, 'text-amber-400'],

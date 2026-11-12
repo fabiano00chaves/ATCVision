@@ -38,6 +38,8 @@ class KpisOut(BaseModel):
     pane_total_min: float
     jump_count: int
     jump_pendentes: int
+    meeting_count: int = 0
+    relevant_count: int = 0
     hh_total_min: int
     mttr_min: Optional[float] = None
     mttr_by_arvore: List[Dict[str, Any]] = []

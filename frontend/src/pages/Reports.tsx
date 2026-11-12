@@ -234,6 +234,7 @@ export function Reports() {
               <label className="text-xs font-semibold">Escopo das Ocorrências</label>
               <div className="space-y-1 text-xs">
                 {[
+                  { id: 'meeting', label: '🎯 Pauta da Reunião Diária (Destacados)' },
                   { id: 'relevant_or_analyze', label: '⭐ Foco ATC (Relevantes ou Analisar)' },
                   { id: 'relevant', label: '⭐ Apenas Ocorrências Relevantes' },
                   { id: 'analyze', label: '🔍 Apenas Marcadas p/ Analisar' },

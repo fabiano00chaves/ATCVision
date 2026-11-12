@@ -137,6 +137,7 @@ export const SCOPE_LABELS: Record<ReportScope, string> = {
   relevant_or_analyze: 'Relevantes + Analisar',
   relevant: 'Somente Relevantes',
   analyze: 'Somente Analisar',
+  meeting: 'Pauta da Reunião Diária',
   all: 'Todas do filtro atual',
 }
 

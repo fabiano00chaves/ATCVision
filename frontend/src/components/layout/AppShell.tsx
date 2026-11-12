@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { Outlet } from 'react-router'
 import { AppHeader } from './AppHeader'
 import { AppSidebar, MobileTabBar } from './AppSidebar'
@@ -8,6 +8,21 @@ import { Minimize2 } from 'lucide-react'
 
 export function AppShell() {
   const { focusMode, toggleFocusMode } = useWorkspaceLayout()
+
+  // Global guard: prevent dragged PDF/files dropped anywhere outside a dropzone from opening in browser/new window
+  useEffect(() => {
+    const preventFileNav = (e: DragEvent) => {
+      if (e.dataTransfer?.types && Array.from(e.dataTransfer.types).includes('Files')) {
+        e.preventDefault()
+      }
+    }
+    window.addEventListener('dragover', preventFileNav, false)
+    window.addEventListener('drop', preventFileNav, false)
+    return () => {
+      window.removeEventListener('dragover', preventFileNav, false)
+      window.removeEventListener('drop', preventFileNav, false)
+    }
+  }, [])
 
   return (
     <div className="flex flex-col h-screen w-screen overflow-hidden bg-background text-foreground relative">

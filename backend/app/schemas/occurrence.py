@@ -107,13 +107,17 @@ class OccurrenceSummaryOut(BaseModel):
 
     hh_total_minutos: int
     quantidade_executantes: int
+    primeira_confirmacao_em: Optional[datetime] = None
+    ultima_confirmacao_em: Optional[datetime] = None
 
     flag_analisar: bool
     flag_relevante: bool
+    flag_destaque_reuniao: bool = False
     status_atc: str
     prioridade_atc: Optional[str] = None
     tags_customizadas: List[str] = []
     comment_count: int = 0
+    same_location_count: int = 1
     snippet: Optional[str] = None
 
     document_ids: List[str] = []
@@ -156,6 +160,7 @@ class OccurrenceDetailOut(OccurrenceSummaryOut):
 class OccurrencePatch(BaseModel):
     flag_analisar: Optional[bool] = None
     flag_relevante: Optional[bool] = None
+    flag_destaque_reuniao: Optional[bool] = None
     status_atc: Optional[str] = None
     prioridade_atc: Optional[str] = None
     tags_customizadas: Optional[List[str]] = None

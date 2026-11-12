@@ -91,6 +91,11 @@ export const occurrencesApi = {
   updateComment: (commentId: string, patch: { comment_text?: string; is_action_item?: boolean }) =>
     request<Comment>(`/comments/${commentId}`, { method: 'PATCH', json: patch }),
   deleteComment: (commentId: string) => request<{ ok: boolean }>(`/comments/${commentId}`, { method: 'DELETE' }),
+  clearMeetingHighlights: (filters: OccurrenceFilters = {}) =>
+    request<{ ok: boolean; message: string }>('/occurrences/meeting/clear', {
+      method: 'POST',
+      query: filtersToQuery(filters),
+    }),
 }
 
 // ---------------- Daily ----------------

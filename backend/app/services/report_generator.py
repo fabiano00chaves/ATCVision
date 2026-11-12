@@ -34,6 +34,7 @@ FIELD_DEFINITIONS = [
     {"key": "defeito_causa", "label": "Defeito e Causa", "default": False},
     {"key": "status_atc", "label": "Status ATC", "default": False},
     {"key": "turno_abertura", "label": "Turno e Data/Hora Abertura", "default": False},
+    {"key": "datas_cronologia", "label": "Abertura e Confirmação", "default": False},
     {"key": "tipo", "label": "Tipo de Ocorrência", "default": False},
 ]
 
@@ -91,7 +92,12 @@ def format_cell_value(occ: Occurrence, field_key: str, include_comments: bool = 
     elif field_key == "turno_abertura":
         t = occ.turno or "-"
         dt = occ.abertura_timestamp.strftime("%d/%m/%Y %H:%M") if occ.abertura_timestamp else "-"
-        return f"{t}\n{dt}"
+        cf = occ.ultima_confirmacao_em.strftime("%d/%m/%Y %H:%M") if getattr(occ, "ultima_confirmacao_em", None) else None
+        return f"{t}\nAb: {dt}" + (f"\nCf: {cf}" if cf else "")
+    elif field_key == "datas_cronologia":
+        ab = occ.abertura_timestamp.strftime("%d/%m/%Y %H:%M") if occ.abertura_timestamp else "-"
+        cf = occ.ultima_confirmacao_em.strftime("%d/%m/%Y %H:%M") if getattr(occ, "ultima_confirmacao_em", None) else "Sem conf."
+        return f"Ab: {ab}\nCf: {cf}"
     elif field_key == "tipo":
         return occ.tipo_ocorrencia.replace("_", " ")
     return "-"

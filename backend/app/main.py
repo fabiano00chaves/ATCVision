@@ -46,8 +46,80 @@ async def lifespan(app: FastAPI):
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+
+            # 2.1 Idempotent column migrations for existing databases (PostgreSQL & SQLite)
+            is_sqlite = settings.DATABASE_URL.startswith("sqlite")
+            if is_sqlite:
+                col_res = await conn.execute(text("PRAGMA table_info(occurrences)"))
+                existing_cols = {row[1] for row in col_res.fetchall()}
+            else:
+                col_res = await conn.execute(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_name = 'occurrences'"
+                    )
+                )
+                existing_cols = {row[0] for row in col_res.fetchall()}
+
+            migrations = []
+            if "flag_destaque_reuniao" not in existing_cols:
+                migrations.append(
+                    "ALTER TABLE occurrences ADD COLUMN flag_destaque_reuniao BOOLEAN NOT NULL DEFAULT FALSE"
+                )
+            if "primeira_confirmacao_em" not in existing_cols:
+                migrations.append(
+                    "ALTER TABLE occurrences ADD COLUMN primeira_confirmacao_em TIMESTAMP NULL"
+                )
+            if "ultima_confirmacao_em" not in existing_cols:
+                migrations.append(
+                    "ALTER TABLE occurrences ADD COLUMN ultima_confirmacao_em TIMESTAMP NULL"
+                )
+
+            for ddl in migrations:
+                await conn.execute(text(ddl))
+
+            # Ensure new indexes exist safely
+            index_ddls = [
+                "CREATE INDEX IF NOT EXISTS ix_occurrences_flag_destaque_reuniao ON occurrences (flag_destaque_reuniao)",
+                "CREATE INDEX IF NOT EXISTS ix_occurrences_ultima_confirmacao_em ON occurrences (ultima_confirmacao_em)",
+                "CREATE INDEX IF NOT EXISTS idx_occurrences_confirmacao_esp ON occurrences (ultima_confirmacao_em, especialidade)",
+                "CREATE INDEX IF NOT EXISTS idx_occurrences_reuniao_abertura ON occurrences (flag_destaque_reuniao, abertura_timestamp)",
+            ]
+            for idx_ddl in index_ddls:
+                try:
+                    await conn.execute(text(idx_ddl))
+                except Exception as idx_err:
+                    log.debug("Index creation notice: %s", idx_err)
     except Exception as e:
-        log.error("Error creating tables in lifespan: %s", e)
+        log.error("Error creating/migrating tables in lifespan: %s", e)
+
+    # 2.5 Backfill confirmation bounds on legacy rows where missing
+    try:
+        from sqlalchemy import select
+        from sqlalchemy.orm import selectinload
+        from app.db.models import Occurrence
+        from app.services.occurrence_service import compute_confirmation_bounds
+
+        async with async_session_factory() as db:
+            res = await db.execute(
+                select(Occurrence)
+                .options(selectinload(Occurrence.confirmations))
+                .where(Occurrence.ultima_confirmacao_em.is_(None))
+            )
+            candidates = res.scalars().all()
+            updated = 0
+            for occ in candidates:
+                if occ.confirmations or occ.texto_confirmacao:
+                    cmin, cmax = compute_confirmation_bounds(occ.confirmations, occ.texto_confirmacao)
+                    if cmin or cmax:
+                        occ.primeira_confirmacao_em = cmin
+                        occ.ultima_confirmacao_em = cmax
+                        updated += 1
+            if updated > 0:
+                await db.commit()
+                log.info("Backfilled confirmation timestamps on %d historical occurrence(s).", updated)
+    except Exception as e:
+        log.warning("Notice during confirmation timestamp backfill: %s", e)
 
     # 3. Seed initial data (Admin, default Presets, default Report Templates, Settings)
     try:

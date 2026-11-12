@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router'
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'react-resizable-panels'
 import { occurrencesApi } from '@/api'
@@ -9,6 +9,7 @@ import type {
   OccurrenceDetail,
   OccurrenceFilters,
   OccurrenceSummary,
+  SortKey,
 } from '@/api/types'
 import { FilterSidebar } from '@/components/filters/FilterSidebar'
 import { QuickbarPresets } from '@/components/filters/QuickbarPresets'
@@ -17,47 +18,170 @@ import { OccurrenceTechnicalSheet } from '@/components/occurrence/OccurrenceTech
 import { PdfViewer } from '@/components/pdf/PdfViewer'
 import { ErrorBoundary } from '@/components/common/ErrorBoundary'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import {
-  AlertTriangle,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
+  ArrowDownUp,
   ArrowLeft,
+  Calendar,
+  Check,
   ChevronLeft,
   ChevronRight,
   Columns2,
   Eye,
   FileText,
-  Filter,
+  Layers,
   LayoutList,
   Loader2,
   Maximize2,
-  OctagonAlert,
-  Search,
-  SlidersHorizontal,
-  Star,
-  Zap,
+  PanelRightClose,
+  PanelRightOpen,
+  Tag,
+  X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { fmtNaiveDate } from '@/lib/datetime'
 import { useIsMobile } from '@/hooks/useMediaQuery'
 
 export type LayoutMode = 'list' | 'split' | 'fullscreen_pdf'
+
+const SORT_STORAGE_KEY = 'atc_occurrences_sort_v1'
+const PDF_COLLAPSED_KEY = 'atc_occurrences_pdf_collapsed_v1'
+
+interface SortOptionMeta {
+  value: SortKey
+  label: string
+  shortLabel: string
+  group: 'chronological' | 'tree' | 'sequential' | 'priority'
+}
+
+export const SORT_OPTIONS: SortOptionMeta[] = [
+  {
+    value: 'abertura_desc',
+    label: 'Data de Abertura ↓ (Mais recentes)',
+    shortLabel: 'Abertura ↓',
+    group: 'chronological',
+  },
+  {
+    value: 'abertura_asc',
+    label: 'Data de Abertura ↑ (Mais antigas)',
+    shortLabel: 'Abertura ↑',
+    group: 'chronological',
+  },
+  {
+    value: 'atividade_desc',
+    label: 'Última Atividade ↓ (Abertura ou Confirmação)',
+    shortLabel: 'Atividade ↓',
+    group: 'chronological',
+  },
+  {
+    value: 'confirmacao_desc',
+    label: 'Data de Confirmação ↓ (Mais recentes)',
+    shortLabel: 'Confirmação ↓',
+    group: 'chronological',
+  },
+  {
+    value: 'confirmacao_asc',
+    label: 'Data de Confirmação ↑ (Mais antigas)',
+    shortLabel: 'Confirmação ↑',
+    group: 'chronological',
+  },
+  {
+    value: 'arvore_asc',
+    label: 'Agrupado por Árvore de Cadastro (A → Z)',
+    shortLabel: 'Árvore (A→Z)',
+    group: 'tree',
+  },
+  {
+    value: 'arvore_desc',
+    label: 'Agrupado por Árvore de Cadastro (Z → A)',
+    shortLabel: 'Árvore (Z→A)',
+    group: 'tree',
+  },
+  {
+    value: 'arvore_abertura_asc',
+    label: 'Sequencial: Árvore → Data Crescente → Ordem',
+    shortLabel: 'Árvore + Data ↑',
+    group: 'sequential',
+  },
+  {
+    value: 'data_desc_arvore',
+    label: 'Sequencial: Data ↓ → Árvore → Ordem',
+    shortLabel: 'Data ↓ + Árvore',
+    group: 'sequential',
+  },
+  {
+    value: 'data_asc_arvore',
+    label: 'Sequencial: Data ↑ → Árvore → Ordem',
+    shortLabel: 'Data ↑ + Árvore',
+    group: 'sequential',
+  },
+  {
+    value: 'pane_desc',
+    label: 'Maior Duração de Pane ↓',
+    shortLabel: 'Pane ↓',
+    group: 'priority',
+  },
+  {
+    value: 'relevance',
+    label: 'Prioridade (Reunião / Relevantes / Análise)',
+    shortLabel: 'Prioridade',
+    group: 'priority',
+  },
+]
 
 interface OccurrencesProps {
   initialFilters?: OccurrenceFilters
   hideFilterBar?: boolean
   headerExtra?: React.ReactNode
+  onSortChange?: (sort: SortKey) => void
+  onFilterLocationExternal?: (pf: string | null) => void
 }
 
-export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra }: OccurrencesProps) {
+export function Occurrences({
+  initialFilters,
+  hideFilterBar = false,
+  headerExtra,
+  onSortChange,
+  onFilterLocationExternal,
+}: OccurrencesProps) {
   const { id: paramId } = useParams()
   const isMobile = useIsMobile()
 
-  const [filters, setFilters] = useState<OccurrenceFilters>(initialFilters || {})
+  const [sortOrder, setSortOrder] = useState<SortKey>(() => {
+    try {
+      const saved = localStorage.getItem(SORT_STORAGE_KEY) as SortKey | null
+      if (saved && SORT_OPTIONS.some((o) => o.value === saved)) return saved
+    } catch {}
+    return 'abertura_desc'
+  })
+
+  const [quickLocationPf, setQuickLocationPf] = useState<string | null>(null)
+
+  const [filters, setFilters] = useState<OccurrenceFilters>(() => ({
+    ...(initialFilters || {}),
+    sort: initialFilters?.sort || sortOrder,
+  }))
+
   const [layoutMode, setLayoutMode] = useState<LayoutMode>(() => {
     if (typeof window !== 'undefined' && window.innerWidth < 768) {
       return 'list'
     }
     return 'split'
+  })
+
+  const [pdfCollapsed, setPdfCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(PDF_COLLAPSED_KEY) === 'true'
+    } catch {}
+    return false
   })
 
   const [occurrences, setOccurrences] = useState<OccurrenceSummary[]>([])
@@ -75,6 +199,20 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
   const [highlightFieldKey, setHighlightFieldKey] = useState<FieldKey | null>(null)
   const [highlightBBoxes, setHighlightBBoxes] = useState<BBox[]>([])
 
+  // Persist PDF collapsed preference
+  useEffect(() => {
+    try {
+      localStorage.setItem(PDF_COLLAPSED_KEY, String(pdfCollapsed))
+    } catch {}
+  }, [pdfCollapsed])
+
+  // Persist sort preference
+  useEffect(() => {
+    try {
+      localStorage.setItem(SORT_STORAGE_KEY, sortOrder)
+    } catch {}
+  }, [sortOrder])
+
   // Responsive mode adjuster
   useEffect(() => {
     if (isMobile && layoutMode === 'split') {
@@ -86,11 +224,16 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
   useEffect(() => {
     if (!initialFilters) return
     setFilters((prev) => {
-      const next: OccurrenceFilters = { ...prev, ...initialFilters }
+      const next: OccurrenceFilters = {
+        ...prev,
+        ...initialFilters,
+        sort: initialFilters.sort || prev.sort || sortOrder,
+      }
 
       if (!initialFilters.preset_id) delete next.preset_id
       if (initialFilters.start === undefined) delete next.start
       if (initialFilters.end === undefined) delete next.end
+      if (!initialFilters.date_mode) delete next.date_mode
       if (!initialFilters.document_ids) delete next.document_ids
       if (!initialFilters.fl_prefixes) delete next.fl_prefixes
       if (!initialFilters.arvores) delete next.arvores
@@ -101,16 +244,55 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
       if (!initialFilters.only_jump) delete next.only_jump
       if (!initialFilters.only_relevant) delete next.only_relevant
       if (!initialFilters.only_analyze) delete next.only_analyze
+      if (!initialFilters.only_meeting) delete next.only_meeting
 
       return next
     })
   }, [initialFilters])
 
+  const handleSortChange = (nextSort: SortKey) => {
+    setSortOrder(nextSort)
+    setFilters((prev) => ({ ...prev, sort: nextSort }))
+    onSortChange?.(nextSort)
+  }
+
+  const handleToggleLocationFilter = (pf: string) => {
+    const isSame = quickLocationPf === pf
+    const nextPf = isSame ? null : pf
+    setQuickLocationPf(nextPf)
+
+    if (onFilterLocationExternal) {
+      onFilterLocationExternal(nextPf)
+    } else if (!hideFilterBar) {
+      setFilters((prev) => ({
+        ...prev,
+        fl_prefixes: nextPf ? [nextPf] : undefined,
+      }))
+    }
+    toast.info(
+      nextPf
+        ? `Filtrando local: ${nextPf}`
+        : 'Filtro de local específico removido'
+    )
+  }
+
+  // Merge quick local location filter if active
+  const effectiveFilters: OccurrenceFilters = useMemo(() => {
+    const merged: OccurrenceFilters = {
+      ...filters,
+      sort: sortOrder,
+    }
+    if (quickLocationPf && !onFilterLocationExternal && hideFilterBar) {
+      merged.fl_prefixes = [quickLocationPf]
+    }
+    return merged
+  }, [filters, sortOrder, quickLocationPf, onFilterLocationExternal, hideFilterBar])
+
   // Load occurrences list
   const loadOccurrences = async () => {
     setLoading(true)
     try {
-      const res = await occurrencesApi.list(filters, 100, 0)
+      const res = await occurrencesApi.list(effectiveFilters, 100, 0)
       setOccurrences(res.items)
       setTotal(res.total)
       if (!selectedId && res.items.length > 0) {
@@ -129,7 +311,18 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
 
   useEffect(() => {
     loadOccurrences()
-  }, [filters])
+  }, [effectiveFilters])
+
+  // Local location count fallback computed from loaded list
+  const localPfCounts = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const o of occurrences) {
+      if (o.posicao_funcional) {
+        map[o.posicao_funcional] = (map[o.posicao_funcional] || 0) + 1
+      }
+    }
+    return map
+  }, [occurrences])
 
   // Load selected occurrence detail
   useEffect(() => {
@@ -175,7 +368,6 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
     if (isMobile) {
       setMobileViewTab('sheet')
       setMobileDetailOpen(true)
-      // Push history entry so mobile hardware/gesture back button closes the modal
       if (window.history.state?.occurrenceModal !== id) {
         window.history.pushState({ occurrenceModal: id }, '')
       }
@@ -236,7 +428,9 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
               ...item,
               flag_analisar: updatedSummary.flag_analisar,
               flag_relevante: updatedSummary.flag_relevante,
+              flag_destaque_reuniao: updatedSummary.flag_destaque_reuniao,
               status_atc: updatedSummary.status_atc,
+              prioridade_atc: updatedSummary.prioridade_atc,
               jump_status: updatedSummary.jump_status,
             }
           : item
@@ -245,6 +439,7 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
     if (detail && detail.id === updatedSummary.id) {
       setDetail((prev) => (prev ? { ...prev, ...updatedSummary } : null))
     }
+    window.dispatchEvent(new CustomEvent('atc:occurrence-updated'))
   }
 
   // Prev / Next index helpers
@@ -264,7 +459,7 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
     }
   }
 
-  // Click-to-highlight field in PDF
+  // Click-to-highlight field in PDF (auto-expands PDF panel if collapsed!)
   const handleHighlightField = (key: FieldKey) => {
     setHighlightFieldKey(key)
     const bboxes = activeMapping?.field_bboxes?.[key] || []
@@ -272,12 +467,15 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
     if (layoutMode === 'list' && !isMobile) {
       setLayoutMode('split')
     }
+    if (pdfCollapsed && !isMobile) {
+      setPdfCollapsed(false)
+    }
     if (isMobile) {
       setMobileViewTab('pdf')
     }
   }
 
-  // Keyboard shortcuts (1, 2, 3, j, k, a, r)
+  // Keyboard shortcuts (1, 2, 3, j, k, a, r, m)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName?.toLowerCase()
@@ -307,6 +505,18 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
           handleOccurrenceUpdated(u)
           toast.success(u.flag_relevante ? 'Marcado como Relevante' : 'Desmarcado')
         })
+      } else if (e.key === 'm' && selectedId && detail) {
+        e.preventDefault()
+        occurrencesApi
+          .patch(selectedId, { flag_destaque_reuniao: !detail.flag_destaque_reuniao })
+          .then((u) => {
+            handleOccurrenceUpdated(u)
+            toast.success(
+              u.flag_destaque_reuniao
+                ? 'Destacado para Pauta da Reunião Diária'
+                : 'Removido da Pauta da Reunião Diária'
+            )
+          })
       }
     }
 
@@ -315,60 +525,221 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
   }, [occurrences, selectedId, detail, isMobile, currentIndex])
 
   const selectedPdfDocId = activeMapping?.pdf_document_id || detail?.primary_document_id
+  const activeSortMeta = SORT_OPTIONS.find((s) => s.value === sortOrder) || SORT_OPTIONS[0]
+
+  // Helper to compute visual group label when sorted by tree or sequential date+tree
+  const getGroupLabel = (o: OccurrenceSummary): string | null => {
+    if (sortOrder === 'arvore_asc' || sortOrder === 'arvore_desc' || sortOrder === 'arvore_abertura_asc') {
+      return `Árvore: ${o.arvore_planta || 'SEM ÁRVORE'}`
+    }
+    if (sortOrder === 'data_desc_arvore' || sortOrder === 'data_asc_arvore') {
+      const d = o.data_abertura ? fmtNaiveDate(o.data_abertura) : 'Sem data'
+      return `${d} • ${o.arvore_planta || 'SEM ÁRVORE'}`
+    }
+    return null
+  }
+
+  const renderOccurrencesWithGroups = (compactCards = false) => {
+    let lastGroup: string | null = null
+    return occurrences.map((o) => {
+      const grp = getGroupLabel(o)
+      const showHeader = grp !== null && grp !== lastGroup
+      if (grp !== null) lastGroup = grp
+
+      const pfLocCount = o.posicao_funcional
+        ? Math.max(o.same_location_count ?? 1, localPfCounts[o.posicao_funcional] ?? 1)
+        : 1
+
+      return (
+        <React.Fragment key={o.id}>
+          {showHeader && (
+            <div className="sticky top-0 z-10 flex items-center gap-1.5 px-2 py-1 rounded-md bg-muted/90 backdrop-blur-xs border border-border/60 text-[10px] font-bold uppercase tracking-wider text-primary shadow-2xs">
+              {sortOrder.startsWith('data_') ? (
+                <Calendar className="size-3 shrink-0" />
+              ) : (
+                <Layers className="size-3 shrink-0" />
+              )}
+              <span className="truncate">{grp}</span>
+            </div>
+          )}
+          <OccurrenceCard
+            occurrence={o}
+            isSelected={o.id === selectedId}
+            sameLocationCount={pfLocCount}
+            onClick={() => (compactCards ? setSelectedId(o.id) : handleSelectOccurrence(o.id))}
+            onOccurrenceUpdated={handleOccurrenceUpdated}
+            onFilterLocation={handleToggleLocationFilter}
+            compact={compactCards}
+          />
+        </React.Fragment>
+      )
+    })
+  }
 
   const layoutControls = (
-    <div className="flex items-center gap-1">
-      <Button
-        variant={layoutMode === 'list' ? 'default' : 'ghost'}
-        size="xs"
-        onClick={() => setLayoutMode('list')}
-        title="Modo Lista Completa (Atalho: 1)"
-        className="h-6 text-xs px-2"
-      >
-        <LayoutList className="size-3" />
-        <span className="hidden sm:inline">Lista</span>
-      </Button>
-
-      {!isMobile && (
-        <Button
-          variant={layoutMode === 'split' ? 'default' : 'ghost'}
-          size="xs"
-          onClick={() => setLayoutMode('split')}
-          title="Modo Lado a Lado (Atalho: 2)"
-          className="h-6 text-xs px-2"
-        >
-          <Columns2 className="size-3" />
-          <span className="hidden sm:inline">Lado a Lado</span>
-        </Button>
+    <div className="flex items-center gap-1.5 flex-wrap">
+      {/* Quick Location Filter Active Pill */}
+      {quickLocationPf && (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30 text-[10px] font-mono font-bold">
+          <Tag className="size-2.5" />
+          <span className="max-w-[140px] truncate">{quickLocationPf}</span>
+          <button
+            type="button"
+            onClick={() => handleToggleLocationFilter(quickLocationPf)}
+            className="hover:text-foreground cursor-pointer"
+            title="Remover filtro de local"
+          >
+            <X className="size-2.5" />
+          </button>
+        </span>
       )}
 
-      <Button
-        variant={layoutMode === 'fullscreen_pdf' ? 'default' : 'ghost'}
-        size="xs"
-        onClick={() => setLayoutMode('fullscreen_pdf')}
-        title="Modo PDF Tela Cheia (Atalho: 3)"
-        className="h-6 text-xs px-2"
-      >
-        <Maximize2 className="size-3" />
-        <span className="hidden sm:inline">PDF</span>
-      </Button>
+      {/* Multi-Mode Sort Selector */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="outline"
+            size="xs"
+            className="h-6 text-[11px] px-2 gap-1 font-semibold bg-background/80 cursor-pointer"
+            title="Ordenar registros (Data, Árvore de Cadastro, Sequencial Combinado)"
+          >
+            <ArrowDownUp className="size-3 text-primary" />
+            <span className="hidden md:inline">{activeSortMeta.shortLabel}</span>
+            <span className="md:hidden">Ordenar</span>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-72 text-xs z-50">
+          <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Ordenação Cronológica (Datas)
+          </DropdownMenuLabel>
+          {SORT_OPTIONS.filter((o) => o.group === 'chronological').map((opt) => (
+            <DropdownMenuItem
+              key={opt.value}
+              onClick={() => handleSortChange(opt.value)}
+              className="flex items-center justify-between cursor-pointer text-xs"
+            >
+              <span>{opt.label}</span>
+              {sortOrder === opt.value && <Check className="size-3.5 text-primary shrink-0" />}
+            </DropdownMenuItem>
+          ))}
+
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Agrupamento por Árvore de Cadastro
+          </DropdownMenuLabel>
+          {SORT_OPTIONS.filter((o) => o.group === 'tree').map((opt) => (
+            <DropdownMenuItem
+              key={opt.value}
+              onClick={() => handleSortChange(opt.value)}
+              className="flex items-center justify-between cursor-pointer text-xs"
+            >
+              <span>{opt.label}</span>
+              {sortOrder === opt.value && <Check className="size-3.5 text-primary shrink-0" />}
+            </DropdownMenuItem>
+          ))}
+
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Ordenação Sequencial Combinada
+          </DropdownMenuLabel>
+          {SORT_OPTIONS.filter((o) => o.group === 'sequential').map((opt) => (
+            <DropdownMenuItem
+              key={opt.value}
+              onClick={() => handleSortChange(opt.value)}
+              className="flex items-center justify-between cursor-pointer text-xs"
+            >
+              <span>{opt.label}</span>
+              {sortOrder === opt.value && <Check className="size-3.5 text-primary shrink-0" />}
+            </DropdownMenuItem>
+          ))}
+
+          <DropdownMenuSeparator />
+          <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Criticidade &amp; Reunião
+          </DropdownMenuLabel>
+          {SORT_OPTIONS.filter((o) => o.group === 'priority').map((opt) => (
+            <DropdownMenuItem
+              key={opt.value}
+              onClick={() => handleSortChange(opt.value)}
+              className="flex items-center justify-between cursor-pointer text-xs"
+            >
+              <span>{opt.label}</span>
+              {sortOrder === opt.value && <Check className="size-3.5 text-primary shrink-0" />}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <div className="h-3.5 w-px bg-border/60 hidden sm:block" />
+
+      {/* Layout Switcher */}
+      <div className="flex items-center gap-0.5">
+        <Button
+          variant={layoutMode === 'list' ? 'default' : 'ghost'}
+          size="xs"
+          onClick={() => setLayoutMode('list')}
+          title="Modo Lista Completa (Atalho: 1)"
+          className="h-6 text-xs px-2"
+        >
+          <LayoutList className="size-3" />
+          <span className="hidden sm:inline">Lista</span>
+        </Button>
+
+        {!isMobile && (
+          <Button
+            variant={layoutMode === 'split' ? 'default' : 'ghost'}
+            size="xs"
+            onClick={() => setLayoutMode('split')}
+            title="Modo Lado a Lado (Atalho: 2)"
+            className="h-6 text-xs px-2"
+          >
+            <Columns2 className="size-3" />
+            <span className="hidden sm:inline">Lado a Lado</span>
+          </Button>
+        )}
+
+        <Button
+          variant={layoutMode === 'fullscreen_pdf' ? 'default' : 'ghost'}
+          size="xs"
+          onClick={() => setLayoutMode('fullscreen_pdf')}
+          title="Modo PDF Tela Cheia (Atalho: 3)"
+          className="h-6 text-xs px-2"
+        >
+          <Maximize2 className="size-3" />
+          <span className="hidden sm:inline">PDF</span>
+        </Button>
+
+        {!isMobile && layoutMode === 'split' && (
+          <Button
+            variant={pdfCollapsed ? 'secondary' : 'ghost'}
+            size="xs"
+            onClick={() => setPdfCollapsed((v) => !v)}
+            title={pdfCollapsed ? 'Reexibir painel lateral do PDF' : 'Recolher painel do PDF'}
+            className="h-6 text-[11px] px-1.5 gap-1"
+          >
+            {pdfCollapsed ? (
+              <PanelRightOpen className="size-3 text-primary" />
+            ) : (
+              <PanelRightClose className="size-3 text-muted-foreground" />
+            )}
+            <span className="hidden xl:inline">{pdfCollapsed ? 'Exibir PDF' : 'Ocultar PDF'}</span>
+          </Button>
+        )}
+      </div>
     </div>
   )
+
+  const selectedLocCount =
+    detail?.posicao_funcional
+      ? Math.max(detail.same_location_count ?? 1, localPfCounts[detail.posicao_funcional] ?? 1)
+      : 1
 
   const mainView = (
     <div className="flex-1 overflow-hidden relative">
       {/* LIST MODE (Feed view on Mobile & Desktop) */}
       {layoutMode === 'list' && (
         <div className="h-full overflow-y-auto p-2 sm:p-4 max-w-5xl mx-auto space-y-2.5">
-          {occurrences.map((o) => (
-            <OccurrenceCard
-              key={o.id}
-              occurrence={o}
-              isSelected={o.id === selectedId}
-              onClick={() => handleSelectOccurrence(o.id)}
-              onOccurrenceUpdated={handleOccurrenceUpdated}
-            />
-          ))}
+          {renderOccurrencesWithGroups(false)}
           {occurrences.length === 0 && !loading && (
             <div className="p-12 text-center text-muted-foreground">
               <p className="font-semibold text-sm text-foreground">
@@ -382,27 +753,24 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
         </div>
       )}
 
-      {/* SPLIT MODE (Side by side on Desktop) */}
+      {/* SPLIT MODE (Side by side on Desktop, with optional Collapsible PDF Pane) */}
       {layoutMode === 'split' && !isMobile && (
         <PanelGroup orientation="horizontal" className="h-full w-full">
           {/* Left Panel: Occurrence List & Technical Sheet */}
-          <Panel defaultSize={52} minSize={30} className="flex flex-col h-full border-r">
+          <Panel defaultSize={pdfCollapsed ? 100 : 54} minSize={30} className="flex flex-col h-full border-r">
             <div className="flex-1 flex overflow-hidden">
               {/* Compact List Sidebar */}
-              <div className="w-64 border-r overflow-y-auto p-2 space-y-2 shrink-0 hidden lg:block bg-muted/10">
-                {occurrences.map((o) => (
-                  <OccurrenceCard
-                    key={o.id}
-                    occurrence={o}
-                    isSelected={o.id === selectedId}
-                    onClick={() => setSelectedId(o.id)}
-                    onOccurrenceUpdated={handleOccurrenceUpdated}
-                  />
-                ))}
+              <div className="w-64 xl:w-72 border-r overflow-y-auto p-2 space-y-2 shrink-0 hidden lg:block bg-muted/10">
+                {renderOccurrencesWithGroups(true)}
+                {occurrences.length === 0 && !loading && (
+                  <p className="text-xs text-muted-foreground text-center py-8 px-2">
+                    Nenhum registro encontrado.
+                  </p>
+                )}
               </div>
 
-              {/* Technical Sheet */}
-              <div className="flex-1 overflow-y-auto flex flex-col">
+              {/* Technical Sheet (overflow-hidden keeps top header bar locked & non-scrolling!) */}
+              <div className="flex-1 overflow-hidden flex flex-col">
                 {detailLoading ? (
                   <div className="flex-1 flex items-center justify-center text-muted-foreground p-8">
                     <Loader2 className="size-6 animate-spin mr-2 text-primary" />
@@ -415,12 +783,16 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
                     onMappingChange={setActiveMapping}
                     onHighlightField={handleHighlightField}
                     onOccurrenceUpdated={handleOccurrenceUpdated}
+                    onFilterLocation={handleToggleLocationFilter}
+                    sameLocationCount={selectedLocCount}
                     onPrevious={handlePrevious}
                     onNext={handleNext}
                     hasPrevious={hasPrevious}
                     hasNext={hasNext}
                     currentIndex={currentIndex}
                     totalCount={occurrences.length}
+                    pdfCollapsed={pdfCollapsed}
+                    onTogglePdfCollapse={() => setPdfCollapsed((v) => !v)}
                   />
                 ) : (
                   <div className="flex-1 flex items-center justify-center text-muted-foreground p-8">
@@ -431,34 +803,53 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
             </div>
           </Panel>
 
-          <PanelResizeHandle className="w-1.5 bg-border hover:bg-primary transition-colors cursor-col-resize" />
+          {!pdfCollapsed && (
+            <>
+              <PanelResizeHandle className="w-1.5 bg-border hover:bg-primary transition-colors cursor-col-resize" />
 
-          {/* Right Panel: Interactive PDF.js Viewer */}
-          <Panel defaultSize={48} minSize={30} className="h-full">
-            {selectedPdfDocId ? (
-              <ErrorBoundary fallbackTitle="Falha ao renderizar o visualizador PDF">
-                <PdfViewer
-                  key={selectedPdfDocId}
-                  documentId={selectedPdfDocId}
-                  activeMapping={activeMapping}
-                  highlightFieldKey={highlightFieldKey}
-                  highlightBBoxes={highlightBBoxes}
-                />
-              </ErrorBoundary>
-            ) : (
-              <div className="h-full flex flex-col items-center justify-center text-muted-foreground p-8">
-                <FileText className="size-10 mb-2 opacity-40" />
-                <p className="text-xs font-semibold">Nenhum documento PDF vinculado</p>
-              </div>
-            )}
-          </Panel>
+              {/* Right Panel: Interactive PDF.js Viewer */}
+              <Panel defaultSize={46} minSize={28} className="h-full">
+                {selectedPdfDocId ? (
+                  <ErrorBoundary fallbackTitle="Falha ao renderizar o visualizador PDF">
+                    <PdfViewer
+                      key={selectedPdfDocId}
+                      documentId={selectedPdfDocId}
+                      activeMapping={activeMapping}
+                      highlightFieldKey={highlightFieldKey}
+                      highlightBBoxes={highlightBBoxes}
+                      onCollapse={() => setPdfCollapsed(true)}
+                    />
+                  </ErrorBoundary>
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center text-muted-foreground p-8">
+                    <FileText className="size-10 mb-2 opacity-40" />
+                    <p className="text-xs font-semibold">Nenhum documento PDF vinculado</p>
+                  </div>
+                )}
+              </Panel>
+            </>
+          )}
+
+          {/* Vertical Slim Strip to Restore Collapsed PDF Immediately */}
+          {pdfCollapsed && (
+            <button
+              type="button"
+              onClick={() => setPdfCollapsed(false)}
+              title="Clique para reexibir o painel lateral do PDF"
+              className="w-8 h-full border-l bg-muted/30 hover:bg-primary/10 text-muted-foreground hover:text-primary flex flex-col items-center justify-center gap-3 shrink-0 transition-colors cursor-pointer select-none"
+            >
+              <PanelRightOpen className="size-4 text-primary" />
+              <span className="[writing-mode:vertical-rl] rotate-180 text-[10px] font-bold uppercase tracking-widest">
+                Exibir PDF Original
+              </span>
+            </button>
+          )}
         </PanelGroup>
       )}
 
       {/* FULLSCREEN PDF MODE */}
       {layoutMode === 'fullscreen_pdf' && (
         <div className="h-full w-full relative flex">
-          {/* 100% PDF */}
           <div className="flex-1 h-full">
             {selectedPdfDocId ? (
               <ErrorBoundary fallbackTitle="Falha ao renderizar o visualizador PDF">
@@ -476,22 +867,23 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
             )}
           </div>
 
-          {/* Floating Drawer on Right (Desktop) */}
           {detail && !isMobile && (
             <div className="w-96 border-l bg-background shadow-2xl h-full flex flex-col z-20 overflow-hidden">
-              <div className="p-2 border-b bg-card flex items-center justify-between">
+              <div className="p-2 border-b bg-card flex items-center justify-between shrink-0">
                 <span className="font-bold text-xs truncate max-w-[200px]">{detail.titulo}</span>
                 <Button size="xs" variant="ghost" onClick={() => setLayoutMode('split')}>
                   Modo Dividido
                 </Button>
               </div>
-              <div className="flex-1 overflow-y-auto">
+              <div className="flex-1 overflow-hidden flex flex-col">
                 <OccurrenceTechnicalSheet
                   occurrence={detail}
                   activeMapping={activeMapping}
                   onMappingChange={setActiveMapping}
                   onHighlightField={handleHighlightField}
                   onOccurrenceUpdated={handleOccurrenceUpdated}
+                  onFilterLocation={handleToggleLocationFilter}
+                  sameLocationCount={selectedLocCount}
                   onPrevious={handlePrevious}
                   onNext={handleNext}
                   hasPrevious={hasPrevious}
@@ -511,7 +903,7 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
     return (
       <div className="flex flex-col h-full w-full overflow-hidden bg-background">
         {headerExtra}
-        <div className="h-8 border-b bg-card/60 px-3 flex items-center justify-between shrink-0 text-xs">
+        <div className="min-h-8 border-b bg-card/60 px-3 py-1 flex flex-wrap items-center justify-between gap-2 shrink-0 text-xs">
           <span className="font-semibold text-foreground">
             {loading ? (
               <span className="flex items-center gap-1.5 text-muted-foreground">
@@ -553,7 +945,6 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
       {/* MOBILE FULL-SCREEN OCCURRENCE VIEW / MODAL */}
       {isMobile && mobileDetailOpen && detail && (
         <div className="fixed inset-0 z-50 bg-background flex flex-col animate-in fade-in duration-150">
-          {/* Mobile Top App Bar */}
           <header className="h-12 border-b bg-card px-3 flex items-center justify-between shrink-0 shadow-xs">
             <Button
               variant="ghost"
@@ -565,9 +956,9 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
               <span>Ocorrências</span>
             </Button>
 
-            {/* Mobile Tab Switcher: Ficha Técnica vs PDF */}
             <div className="flex items-center bg-muted p-0.5 rounded-lg">
               <button
+                type="button"
                 onClick={() => setMobileViewTab('sheet')}
                 className={cn(
                   'px-2.5 py-1 text-xs font-semibold rounded-md transition-all',
@@ -579,6 +970,7 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
                 Ficha Técnica
               </button>
               <button
+                type="button"
                 onClick={() => setMobileViewTab('pdf')}
                 className={cn(
                   'px-2.5 py-1 text-xs font-semibold rounded-md transition-all flex items-center gap-1',
@@ -592,7 +984,6 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
               </button>
             </div>
 
-            {/* Prev / Next occurrence buttons on Mobile with Counter */}
             <div className="flex items-center gap-1">
               <Button
                 variant="outline"
@@ -620,20 +1011,21 @@ export function Occurrences({ initialFilters, hideFilterBar = false, headerExtra
             </div>
           </header>
 
-          {/* Mobile Tab Content with Swipe Gesture Support */}
           <div
             className="flex-1 overflow-hidden relative"
             onTouchStart={handleTouchStart}
             onTouchEnd={handleTouchEnd}
           >
             {mobileViewTab === 'sheet' ? (
-              <div className="h-full overflow-y-auto">
+              <div className="h-full overflow-hidden flex flex-col">
                 <OccurrenceTechnicalSheet
                   occurrence={detail}
                   activeMapping={activeMapping}
                   onMappingChange={setActiveMapping}
                   onHighlightField={handleHighlightField}
                   onOccurrenceUpdated={handleOccurrenceUpdated}
+                  onFilterLocation={handleToggleLocationFilter}
+                  sameLocationCount={selectedLocCount}
                   onPrevious={handlePrevious}
                   onNext={handleNext}
                   hasPrevious={hasPrevious}

@@ -11,6 +11,7 @@ import {
   FileText,
   Loader2,
   Maximize2,
+  PanelRightClose,
   RefreshCw,
   RotateCw,
   Scaling,
@@ -33,6 +34,7 @@ interface PdfViewerProps {
   highlightFieldKey?: FieldKey | null
   highlightBBoxes?: BBox[]
   onPageChange?: (page: number) => void
+  onCollapse?: () => void
 }
 
 export function PdfViewer({
@@ -41,6 +43,7 @@ export function PdfViewer({
   highlightFieldKey,
   highlightBBoxes,
   onPageChange,
+  onCollapse,
 }: PdfViewerProps) {
   const [numPages, setNumPages] = useState<number>(0)
   const [currentPage, setCurrentPage] = useState<number>(1)
@@ -340,6 +343,22 @@ export function PdfViewer({
             >
               <ExternalLink className="size-3.5" />
             </a>
+          )}
+
+          {onCollapse && (
+            <>
+              <div className="h-3 w-px bg-border mx-0.5" />
+              <Button
+                variant="outline"
+                size="xs"
+                onClick={onCollapse}
+                className="h-6 px-1.5 text-[10px] gap-1 text-muted-foreground hover:text-foreground font-semibold"
+                title="Recolher painel do PDF para ampliar a leitura"
+              >
+                <PanelRightClose className="size-3" />
+                <span className="hidden xl:inline">Recolher PDF</span>
+              </Button>
+            </>
           )}
         </div>
       </div>

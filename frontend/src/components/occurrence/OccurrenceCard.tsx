@@ -3,38 +3,42 @@ import type { OccurrenceSummary, StatusATC } from '@/api/types'
 import { Badge } from '@/components/ui/badge'
 import {
   AlertTriangle,
-  Clock,
-  Copy,
+  CalendarClock,
   Check,
-  Cpu,
-  Flame,
+  CheckCircle2,
+  Copy,
+  Layers,
   MessageSquare,
   OctagonAlert,
+  Presentation,
   Search,
-  Sparkles,
   Star,
   Tag,
   Wrench,
   Zap,
 } from 'lucide-react'
 import { cn, copyToClipboard } from '@/lib/utils'
-import { fmtDayLabel, parseNaive } from '@/lib/datetime'
+import { fmtDayLabel, fmtTime, parseNaive } from '@/lib/datetime'
 import { toast } from 'sonner'
 import { occurrencesApi } from '@/api'
 
 interface OccurrenceCardProps {
   occurrence: OccurrenceSummary
   isSelected?: boolean
+  sameLocationCount?: number
   onClick?: () => void
   onOccurrenceUpdated?: (updated: OccurrenceSummary) => void
+  onFilterLocation?: (pf: string) => void
   compact?: boolean
 }
 
 export function OccurrenceCard({
   occurrence,
   isSelected = false,
+  sameLocationCount,
   onClick,
   onOccurrenceUpdated,
+  onFilterLocation,
   compact = false,
 }: OccurrenceCardProps) {
   const [o, setO] = useState<OccurrenceSummary>(occurrence)
@@ -45,6 +49,9 @@ export function OccurrenceCard({
   React.useEffect(() => {
     setO(occurrence)
   }, [occurrence])
+
+  const locCount = Math.max(o.same_location_count ?? 1, sameLocationCount ?? 1)
+  const isMeetingHighlight = Boolean(o.flag_destaque_reuniao)
 
   const handleCopy = async (text: string, label: string, e: React.MouseEvent) => {
     e.stopPropagation()
@@ -68,7 +75,7 @@ export function OccurrenceCard({
         flag_analisar: updated.flag_analisar,
       }
       setO(updatedSummary)
-      if (onOccurrenceUpdated) onOccurrenceUpdated(updatedSummary)
+      onOccurrenceUpdated?.(updatedSummary)
       toast.success(nextVal ? 'Marcado para Analisar' : 'Desmarcado de Analisar')
     } catch {
       toast.error('Erro ao atualizar status de triagem')
@@ -89,10 +96,35 @@ export function OccurrenceCard({
         flag_relevante: updated.flag_relevante,
       }
       setO(updatedSummary)
-      if (onOccurrenceUpdated) onOccurrenceUpdated(updatedSummary)
+      onOccurrenceUpdated?.(updatedSummary)
       toast.success(nextVal ? 'Marcada como Ocorrência Relevante' : 'Desmarcada de Relevante')
     } catch {
       toast.error('Erro ao atualizar status de relevância')
+    } finally {
+      setIsPatching(false)
+    }
+  }
+
+  const handleToggleReuniao = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (isPatching) return
+    setIsPatching(true)
+    const nextVal = !isMeetingHighlight
+    try {
+      const updated = await occurrencesApi.patch(o.id, { flag_destaque_reuniao: nextVal })
+      const updatedSummary: OccurrenceSummary = {
+        ...o,
+        flag_destaque_reuniao: updated.flag_destaque_reuniao,
+      }
+      setO(updatedSummary)
+      onOccurrenceUpdated?.(updatedSummary)
+      toast.success(
+        nextVal
+          ? 'Destacado para a Pauta da Reunião Diária'
+          : 'Removido da Pauta da Reunião Diária'
+      )
+    } catch {
+      toast.error('Erro ao atualizar destaque de reunião')
     } finally {
       setIsPatching(false)
     }
@@ -176,6 +208,13 @@ export function OccurrenceCard({
     }
   }
 
+  // Opening and confirmation formatted dates
+  const aberturaLabel = formatOpeningLabel(o.data_abertura, o.hora_abertura, o.abertura_timestamp)
+  const confirmacaoLabel = formatConfirmationLabel(o.ultima_confirmacao_em)
+  const openingDay = o.data_abertura?.split('T')[0]
+  const confDay = o.ultima_confirmacao_em?.split('T')[0]
+  const confOnDifferentDay = Boolean(openingDay && confDay && openingDay !== confDay)
+
   return (
     <article
       onClick={onClick}
@@ -188,16 +227,25 @@ export function OccurrenceCard({
         }
       }}
       className={cn(
-        'group relative p-3 rounded-xl border text-xs cursor-pointer transition-all duration-200 select-none',
+        'group relative rounded-xl border text-xs cursor-pointer transition-all duration-200 select-none',
+        compact ? 'p-2.5' : 'p-3',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
         isSelected
           ? 'border-primary/80 bg-primary/10 ring-1 ring-primary/40 shadow-sm dark:bg-primary/15'
-          : 'bg-card hover:border-primary/40 hover:bg-muted/30 hover:shadow-xs border-border/70'
+          : isMeetingHighlight
+            ? 'border-violet-500/60 bg-violet-500/8 hover:border-violet-500/80 shadow-xs'
+            : 'bg-card hover:border-primary/40 hover:bg-muted/30 hover:shadow-xs border-border/70'
       )}
     >
-      {/* Selection Left Accent Bar */}
-      {isSelected && (
-        <span className="absolute left-0 top-2 bottom-2 w-1 bg-primary rounded-r" aria-hidden="true" />
+      {/* Left Accent Bar (Selected takes primary, Meeting Highlight takes violet) */}
+      {(isSelected || isMeetingHighlight) && (
+        <span
+          className={cn(
+            'absolute left-0 top-2 bottom-2 w-1 rounded-r',
+            isSelected ? 'bg-primary' : 'bg-violet-500'
+          )}
+          aria-hidden="true"
+        />
       )}
 
       {/* Row 1: Primary Tags & Critical Operational Flags */}
@@ -206,6 +254,7 @@ export function OccurrenceCard({
           {/* Functional Location Tag */}
           {o.posicao_funcional ? (
             <button
+              type="button"
               onClick={(e) => handleCopy(o.posicao_funcional!, 'Tag', e)}
               title="Copiar Tag do Ativo"
               className="inline-flex items-center gap-1 font-mono text-[11px] font-bold px-2 py-0.5 rounded bg-primary/15 text-foreground hover:bg-primary/25 border border-primary/30 transition-colors"
@@ -221,6 +270,30 @@ export function OccurrenceCard({
           ) : (
             <span className="font-mono text-[10px] text-muted-foreground px-1.5 py-0.5 rounded bg-muted">
               SEM TAG
+            </span>
+          )}
+
+          {/* Same-Location Multi-Record Visual Signal */}
+          {locCount > 1 && o.posicao_funcional && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                onFilterLocation?.(o.posicao_funcional!)
+              }}
+              title={`Existem ${locCount} ocorrências para este mesmo local (${o.posicao_funcional}). Clique para filtrar este local.`}
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/40 text-[10px] font-extrabold hover:bg-indigo-500/25 transition-colors cursor-pointer shadow-2xs"
+            >
+              <Layers className="size-2.5" />
+              <span>{locCount}x local</span>
+            </button>
+          )}
+
+          {/* Daily Meeting Highlight Pill */}
+          {isMeetingHighlight && (
+            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-violet-500/20 text-violet-700 dark:text-violet-300 border border-violet-500/40 text-[10px] font-extrabold">
+              <Presentation className="size-2.5" />
+              <span>REUNIÃO</span>
             </span>
           )}
 
@@ -249,7 +322,7 @@ export function OccurrenceCard({
           )}
         </div>
 
-        {/* Right Info: Discipline & Shift & Date */}
+        {/* Right Info: Discipline & Shift */}
         <div className="flex items-center gap-1.5 text-muted-foreground text-[10px] shrink-0">
           {o.especialidade === 'ELETRICA' && (
             <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-600 dark:text-sky-400 font-semibold border border-sky-500/20">
@@ -266,13 +339,39 @@ export function OccurrenceCard({
               T-{o.turno}
             </span>
           )}
-          {o.data_abertura && (
-            <span className="font-mono text-muted-foreground font-medium">
-              {formatDate(o.data_abertura)}
+        </div>
+      </div>
+
+      {/* Row 1.5: Chronology Dates Strip (Abertura & Confirmação) */}
+      {(aberturaLabel || confirmacaoLabel) && (
+        <div className="flex items-center gap-2 flex-wrap mt-1.5 text-[10px] font-mono">
+          {aberturaLabel && (
+            <span
+              className="inline-flex items-center gap-1 text-muted-foreground"
+              title="Data e hora de abertura no SAP"
+            >
+              <CalendarClock className="size-2.5 text-primary/70" />
+              <span>Ab:</span>
+              <b className="text-foreground/90">{aberturaLabel}</b>
+            </span>
+          )}
+          {confirmacaoLabel && (
+            <span
+              className={cn(
+                'inline-flex items-center gap-1 px-1.5 py-0.2 rounded',
+                confOnDifferentDay
+                  ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 font-semibold'
+                  : 'text-emerald-600 dark:text-emerald-400'
+              )}
+              title="Última confirmação / execução apontada no relato"
+            >
+              <CheckCircle2 className="size-2.5" />
+              <span>Cf:</span>
+              <b>{confirmacaoLabel}</b>
             </span>
           )}
         </div>
-      </div>
+      )}
 
       {/* Row 2: Title and Object Description */}
       <div className="my-1.5">
@@ -289,9 +388,10 @@ export function OccurrenceCard({
       {/* Row 3: Identifiers, Comments & Quick Triage Actions */}
       <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1.5 border-t border-border/50 gap-2 flex-wrap">
         {/* Order / Notification Identifiers */}
-        <div className="flex items-center gap-2 truncate max-w-[65%] sm:max-w-[70%]">
+        <div className="flex items-center gap-2 truncate max-w-[60%] sm:max-w-[65%]">
           {o.numero_ordem && (
             <button
+              type="button"
               onClick={(e) => handleCopy(o.numero_ordem!, 'Ordem', e)}
               title="Copiar Número da Ordem"
               className="inline-flex items-center gap-1 font-mono text-[11px] hover:text-foreground hover:bg-muted/60 px-1 py-0.5 rounded transition-colors"
@@ -302,6 +402,7 @@ export function OccurrenceCard({
           )}
           {o.numero_nota && (
             <button
+              type="button"
               onClick={(e) => handleCopy(o.numero_nota!, 'Nota', e)}
               title="Copiar Número da Nota"
               className="inline-flex items-center gap-1 font-mono text-[11px] hover:text-foreground hover:bg-muted/60 px-1 py-0.5 rounded transition-colors"
@@ -318,10 +419,30 @@ export function OccurrenceCard({
           )}
         </div>
 
-        {/* Action Buttons: Analisar, Relevante, Status ATC */}
-        <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+        {/* Action Buttons: Reunião Diária, Relevante, Analisar, Status ATC */}
+        <div className="flex items-center gap-1 shrink-0 ml-auto">
+          {/* Quick 1-Tap Toggle Pauta Reunião Diária */}
+          <button
+            type="button"
+            onClick={handleToggleReuniao}
+            title={
+              isMeetingHighlight
+                ? 'Remover da Pauta da Reunião Diária (Atalho: m)'
+                : 'Destacar para a Pauta da Reunião Diária (Atalho: m)'
+            }
+            className={cn(
+              'size-7 sm:size-6 rounded-md flex items-center justify-center transition-all cursor-pointer',
+              isMeetingHighlight
+                ? 'bg-violet-500/20 text-violet-600 dark:text-violet-300 border border-violet-500/50 shadow-2xs'
+                : 'text-muted-foreground/60 hover:text-violet-500 hover:bg-violet-500/10 active:scale-90'
+            )}
+          >
+            <Presentation className="size-3.5" />
+          </button>
+
           {/* Quick 1-Tap Toggle Relevante */}
           <button
+            type="button"
             onClick={handleToggleRelevante}
             title={o.flag_relevante ? 'Desmarcar Relevante' : 'Marcar como Relevante'}
             className={cn(
@@ -336,6 +457,7 @@ export function OccurrenceCard({
 
           {/* Quick 1-Tap Toggle Analisar */}
           <button
+            type="button"
             onClick={handleToggleAnalisar}
             title={o.flag_analisar ? 'Desmarcar Analisar' : 'Marcar para Analisar'}
             className={cn(
@@ -356,20 +478,31 @@ export function OccurrenceCard({
   )
 }
 
-function formatDate(val: string): string {
-  if (!val) return ''
-  try {
-    const p = parseNaive(val)
-    if (p) {
-      return fmtDayLabel(val)
-    }
-    const clean = val.split('T')[0]
-    const parts = clean.split('-')
-    if (parts.length === 3) {
-      return `${parts[2]}/${parts[1]}`
-    }
-    return val
-  } catch {
-    return val
+function formatOpeningLabel(
+  dataAbertura: string | null | undefined,
+  horaAbertura: string | null | undefined,
+  aberturaTs: string | null | undefined
+): string | null {
+  const source = dataAbertura || aberturaTs
+  if (!source) return null
+  const day = fmtDayLabel(source)
+  if (horaAbertura) {
+    return `${day} ${fmtTime(horaAbertura)}`
   }
+  const p = parseNaive(aberturaTs)
+  if (p && (p.h !== 0 || p.mi !== 0)) {
+    return `${day} ${String(p.h).padStart(2, '0')}:${String(p.mi).padStart(2, '0')}`
+  }
+  return day
+}
+
+function formatConfirmationLabel(confIso: string | null | undefined): string | null {
+  if (!confIso) return null
+  const p = parseNaive(confIso)
+  if (!p) return null
+  const day = `${String(p.d).padStart(2, '0')}/${String(p.mo).padStart(2, '0')}`
+  if (p.h !== 0 || p.mi !== 0) {
+    return `${day} ${String(p.h).padStart(2, '0')}:${String(p.mi).padStart(2, '0')}`
+  }
+  return day
 }

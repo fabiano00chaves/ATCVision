@@ -13,8 +13,8 @@ const ARRAY_KEYS = [
   'status_atc',
   'prioridade_atc',
 ] as const
-const STRING_KEYS = ['start', 'end', 'q', 'nota', 'ordem', 'fl_desc', 'preset_id', 'sort'] as const
-const BOOL_KEYS = ['only_pane', 'only_jump', 'only_relevant', 'only_analyze'] as const
+const STRING_KEYS = ['start', 'end', 'date_mode', 'q', 'nota', 'ordem', 'fl_desc', 'preset_id', 'sort'] as const
+const BOOL_KEYS = ['only_pane', 'only_jump', 'only_relevant', 'only_analyze', 'only_meeting'] as const
 
 export type ArrayFilterKey = (typeof ARRAY_KEYS)[number]
 export type BoolFilterKey = (typeof BOOL_KEYS)[number]

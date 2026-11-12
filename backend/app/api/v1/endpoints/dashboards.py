@@ -51,6 +51,8 @@ async def get_kpis(
     pane_total_min = 0.0
     jump_count = 0
     jump_pendentes = 0
+    meeting_count = 0
+    relevant_count = 0
     hh_total_min = 0
 
     pane_durations: List[float] = []
@@ -84,6 +86,11 @@ async def get_kpis(
             jump_count += 1
             if o.jump_status != "RETIRADO":
                 jump_pendentes += 1
+
+        if getattr(o, "flag_destaque_reuniao", False):
+            meeting_count += 1
+        if o.flag_relevante:
+            relevant_count += 1
 
         hh_total_min += o.hh_total_minutos
 
@@ -126,6 +133,8 @@ async def get_kpis(
         pane_total_min=round(pane_total_min, 1),
         jump_count=jump_count,
         jump_pendentes=jump_pendentes,
+        meeting_count=meeting_count,
+        relevant_count=relevant_count,
         hh_total_min=hh_total_min,
         mttr_min=mttr_min,
         mttr_by_arvore=mttr_by_arvore,

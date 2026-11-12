@@ -67,6 +67,7 @@ export function FilterSidebar({
       'only_jump',
       'only_relevant',
       'only_analyze',
+      'only_meeting',
       'preset_id',
     ] as const) {
       delete next[k]

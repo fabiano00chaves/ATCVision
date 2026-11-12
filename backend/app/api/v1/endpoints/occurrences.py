@@ -34,13 +34,21 @@ from app.schemas.occurrence import (
 from app.services.occurrence_service import (
     apply_occurrence_filters,
     apply_occurrence_sorting,
+    compute_confirmation_bounds,
 )
 
 router = APIRouter()
 
 
-def build_summary_out(occ: Occurrence) -> OccurrenceSummaryOut:
+def build_summary_out(
+    occ: Occurrence,
+    pf_counts: Optional[Dict[str, int]] = None,
+) -> OccurrenceSummaryOut:
     doc_ids = [m.pdf_document_id for m in (occ.mappings or [])]
+    loc_count = 1
+    if occ.posicao_funcional and pf_counts is not None:
+        loc_count = pf_counts.get(occ.posicao_funcional, 1)
+
     return OccurrenceSummaryOut(
         id=occ.id,
         unique_sap_key=occ.unique_sap_key,
@@ -69,12 +77,16 @@ def build_summary_out(occ: Occurrence) -> OccurrenceSummaryOut:
         jump_status=occ.jump_status,
         hh_total_minutos=occ.hh_total_minutos,
         quantidade_executantes=occ.quantidade_executantes,
+        primeira_confirmacao_em=occ.primeira_confirmacao_em,
+        ultima_confirmacao_em=occ.ultima_confirmacao_em,
         flag_analisar=occ.flag_analisar,
         flag_relevante=occ.flag_relevante,
+        flag_destaque_reuniao=bool(getattr(occ, "flag_destaque_reuniao", False)),
         status_atc=occ.status_atc,
         prioridade_atc=occ.prioridade_atc,
         tags_customizadas=occ.tags_customizadas or [],
         comment_count=len(occ.comments) if occ.comments else 0,
+        same_location_count=loc_count,
         snippet=None,
         document_ids=doc_ids,
         primary_document_id=doc_ids[0] if doc_ids else None,
@@ -92,24 +104,60 @@ async def list_occurrences(
     current_user: User = Depends(get_current_user),
 ):
     filters = dict(request.query_params)
+    sort_param = sort or filters.get("sort") or "abertura_desc"
+
     base_query = select(Occurrence).options(
         selectinload(Occurrence.mappings),
         selectinload(Occurrence.comments),
     )
 
-    filtered_query = await apply_occurrence_filters(base_query, filters, db)
+    filtered_query = await apply_occurrence_filters(base_query, dict(filters), db)
 
-    # Count total
-    count_query = select(func.count()).select_from(filtered_query.subquery())
-    total_res = await db.execute(count_query)
+    # Count total & compute functional location recurrence across matching filter scope
+    filtered_ids_query = await apply_occurrence_filters(select(Occurrence.id), dict(filters), db)
+    filtered_ids_sq = filtered_ids_query.subquery()
+
+    total_res = await db.execute(select(func.count()).select_from(filtered_ids_sq))
     total = total_res.scalar() or 0
 
-    sorted_query = apply_occurrence_sorting(filtered_query, sort).limit(limit).offset(offset)
+    pf_res = await db.execute(
+        select(Occurrence.posicao_funcional, func.count(Occurrence.id))
+        .where(Occurrence.id.in_(select(filtered_ids_sq.c.id)))
+        .where(Occurrence.posicao_funcional.isnot(None))
+        .group_by(Occurrence.posicao_funcional)
+    )
+    pf_counts: Dict[str, int] = {row[0]: int(row[1]) for row in pf_res.all() if row[0]}
+
+    sorted_query = apply_occurrence_sorting(filtered_query, sort_param).limit(limit).offset(offset)
     results = await db.execute(sorted_query)
     occurrences = results.scalars().all()
 
-    items = [build_summary_out(o) for o in occurrences]
+    items = [build_summary_out(o, pf_counts=pf_counts) for o in occurrences]
     return PaginatedResponse(items=items, total=total)
+
+
+@router.post("/meeting/clear", response_model=MessageResponse)
+async def clear_meeting_highlights(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Clears daily meeting highlight flags within the provided filter scope (or all active highlights)."""
+    filters = dict(request.query_params)
+    filters["only_meeting"] = True
+    ids_query = await apply_occurrence_filters(select(Occurrence.id), filters, db)
+    res = await db.execute(ids_query)
+    target_ids = [r[0] for r in res.all()]
+
+    if target_ids:
+        await db.execute(
+            update(Occurrence)
+            .where(Occurrence.id.in_(target_ids))
+            .values(flag_destaque_reuniao=False)
+        )
+        await db.commit()
+
+    return MessageResponse(ok=True, message=f"{len(target_ids)} destaque(s) de reunião removidos.")
 
 
 @router.get("/counts", response_model=OccurrenceCountsOut)
@@ -207,6 +255,22 @@ async def get_occurrence_detail(
         for c in occ.comments or []
     ]
 
+    same_location_count = 1
+    if occ.posicao_funcional:
+        loc_cnt_res = await db.execute(
+            select(func.count(Occurrence.id)).where(
+                Occurrence.posicao_funcional == occ.posicao_funcional
+            )
+        )
+        same_location_count = int(loc_cnt_res.scalar() or 1)
+
+    primeira_conf = occ.primeira_confirmacao_em
+    ultima_conf = occ.ultima_confirmacao_em
+    if ultima_conf is None and (occ.confirmations or occ.texto_confirmacao):
+        primeira_conf, ultima_conf = compute_confirmation_bounds(
+            occ.confirmations, occ.texto_confirmacao
+        )
+
     return OccurrenceDetailOut(
         id=occ.id,
         unique_sap_key=occ.unique_sap_key,
@@ -235,12 +299,16 @@ async def get_occurrence_detail(
         jump_status=occ.jump_status,
         hh_total_minutos=occ.hh_total_minutos,
         quantidade_executantes=occ.quantidade_executantes,
+        primeira_confirmacao_em=primeira_conf,
+        ultima_confirmacao_em=ultima_conf,
         flag_analisar=occ.flag_analisar,
         flag_relevante=occ.flag_relevante,
+        flag_destaque_reuniao=bool(getattr(occ, "flag_destaque_reuniao", False)),
         status_atc=occ.status_atc,
         prioridade_atc=occ.prioridade_atc,
         tags_customizadas=occ.tags_customizadas or [],
         comment_count=len(occ.comments) if occ.comments else 0,
+        same_location_count=same_location_count,
         snippet=None,
         document_ids=doc_ids,
         primary_document_id=doc_ids[0] if doc_ids else None,
@@ -291,6 +359,8 @@ async def patch_occurrence(
         occ.flag_analisar = payload.flag_analisar
     if payload.flag_relevante is not None:
         occ.flag_relevante = payload.flag_relevante
+    if payload.flag_destaque_reuniao is not None:
+        occ.flag_destaque_reuniao = payload.flag_destaque_reuniao
     if payload.status_atc is not None:
         occ.status_atc = payload.status_atc
     if payload.prioridade_atc is not None:

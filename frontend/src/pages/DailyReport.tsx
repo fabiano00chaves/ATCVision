@@ -3,10 +3,12 @@ import { dailyApi, dashboardsApi, documentsApi, occurrencesApi, presetsApi, repo
 import type {
   DailyMode,
   DailyWindow,
+  DateMode,
   Kpis,
   OccurrenceFilters,
   PdfDocument,
   Preset,
+  SortKey,
 } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -16,6 +18,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Occurrences } from './Occurrences'
@@ -46,6 +50,8 @@ import {
   MessageSquare,
   Minimize2,
   OctagonAlert,
+  Presentation,
+  RotateCcw,
   Search,
   SlidersHorizontal,
   Sparkles,
@@ -57,6 +63,8 @@ import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
 import { QuickbarPresetSelect } from '@/components/filters/QuickbarPresetSelect'
 import { PresetManagerModal } from '@/components/presets/PresetManagerModal'
+
+const DAILY_DATE_MODE_KEY = 'atc_daily_date_mode_v1'
 
 export function DailyReport() {
   const {
@@ -72,9 +80,15 @@ export function DailyReport() {
   const [mode, setMode] = useState<DailyMode>(() => {
     return (localStorage.getItem('atc_daily_routine_mode') as DailyMode) || 'last24'
   })
+  const [dateMode, setDateMode] = useState<DateMode>(() => {
+    const saved = localStorage.getItem(DAILY_DATE_MODE_KEY) as DateMode | null
+    return saved && ['atividade', 'abertura', 'confirmacao'].includes(saved) ? saved : 'atividade'
+  })
   const [accumDays, setAccumDays] = useState<number>(3)
   const [refDate, setRefDate] = useState<string>('')
   const [windowInfo, setWindowInfo] = useState<DailyWindow | null>(null)
+  const [dailySort, setDailySort] = useState<SortKey>('abertura_desc')
+  const [kpiRefreshTick, setKpiRefreshTick] = useState(0)
 
   // Document selection for "Por PDF" mode
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([])
@@ -128,6 +142,13 @@ export function DailyReport() {
       .catch(() => {})
   }, [])
 
+  // Subscribe to occurrence updates to refresh live KPI/Reunião counts
+  useEffect(() => {
+    const onOccUpdated = () => setKpiRefreshTick((t) => t + 1)
+    window.addEventListener('atc:occurrence-updated', onOccUpdated)
+    return () => window.removeEventListener('atc:occurrence-updated', onOccUpdated)
+  }, [])
+
   // 3. Fetch real-time counts and KPIs for the active window or selected PDFs
   useEffect(() => {
     let active = true
@@ -150,6 +171,7 @@ export function DailyReport() {
         } else if (win) {
           baseCriteria.start = win.start
           baseCriteria.end = win.end
+          baseCriteria.date_mode = dateMode
         }
 
         // Fetch overall KPI counts
@@ -185,7 +207,7 @@ export function DailyReport() {
     return () => {
       active = false
     }
-  }, [mode, accumDays, refDate, selectedDocIds, presets])
+  }, [mode, dateMode, accumDays, refDate, selectedDocIds, presets, kpiRefreshTick])
 
   // Preset Handlers
   const handlePresetSelect = (preset: Preset) => {
@@ -215,6 +237,13 @@ export function DailyReport() {
     } catch {}
   }
 
+  const handleDateModeChange = (newDateMode: DateMode) => {
+    setDateMode(newDateMode)
+    try {
+      localStorage.setItem(DAILY_DATE_MODE_KEY, newDateMode)
+    } catch {}
+  }
+
   const toggleDocSelection = (docId: string) => {
     setSelectedDocIds((prev) => {
       if (prev.includes(docId)) {
@@ -224,7 +253,7 @@ export function DailyReport() {
     })
   }
 
-  const toggleMetricFilter = (key: 'only_pane' | 'only_jump' | 'only_relevant') => {
+  const toggleMetricFilter = (key: 'only_pane' | 'only_jump' | 'only_relevant' | 'only_meeting') => {
     setFilters((prev) => ({
       ...prev,
       [key]: prev[key] ? undefined : true,
@@ -234,42 +263,55 @@ export function DailyReport() {
   // Merge Routine Window into Query Filters
   const computedFilters: OccurrenceFilters = {
     ...filters,
+    sort: dailySort,
   }
 
   if (selectedDocIds.length > 0) {
     computedFilters.document_ids = selectedDocIds
     delete computedFilters.start
     delete computedFilters.end
+    delete computedFilters.date_mode
   } else if (windowInfo) {
     computedFilters.start = windowInfo.start
     computedFilters.end = windowInfo.end
+    computedFilters.date_mode = dateMode
   }
 
   const [exporting, setExporting] = useState<boolean>(false)
 
-  const handleExportDaily = async (fmt: 'pdf' | 'xlsx' | 'csv' | 'whatsapp') => {
+  const handleExportDaily = async (
+    fmt: 'pdf' | 'xlsx' | 'csv' | 'whatsapp',
+    scopeOverride: 'all' | 'meeting' = 'all'
+  ) => {
     setExporting(true)
     try {
+      const prefix = scopeOverride === 'meeting' ? 'Pauta Reunião Diária ATC' : 'Relatório Diário ATC'
       const headerTitle = windowInfo?.label
-        ? `Relatório Diário ATC — ${windowInfo.label}`
-        : 'Relatório Diário de Turno — ATC Vision'
+        ? `${prefix} — ${windowInfo.label}`
+        : `${prefix} — ATC Vision`
 
       const res = await reportsApi.generate({
         header_title: headerTitle,
         format: fmt,
-        scope: 'all',
+        scope: scopeOverride,
         filters: computedFilters,
         include_atc_comments: true,
       })
 
       if (res.kind === 'json') {
         await navigator.clipboard.writeText(res.data.text)
-        toast.success('Resumo de turno copiado para a área de transferência!')
+        toast.success(
+          scopeOverride === 'meeting'
+            ? 'Pauta da Reunião copiada para a área de transferência!'
+            : 'Resumo de turno copiado para a área de transferência!'
+        )
       } else {
         const url = window.URL.createObjectURL(res.data.blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = res.data.filename || `relatorio_diario_atc.${fmt}`
+        a.download =
+          res.data.filename ||
+          `${scopeOverride === 'meeting' ? 'pauta_reuniao' : 'relatorio_diario'}_atc.${fmt}`
         document.body.appendChild(a)
         a.click()
         window.URL.revokeObjectURL(url)
@@ -280,6 +322,27 @@ export function DailyReport() {
       toast.error(err.message || 'Erro ao exportar relatório')
     } finally {
       setExporting(false)
+    }
+  }
+
+  const handleClearMeetingAgenda = async () => {
+    try {
+      const scopeFilters: OccurrenceFilters = {}
+      if (selectedDocIds.length > 0) {
+        scopeFilters.document_ids = selectedDocIds
+      } else if (windowInfo?.start || windowInfo?.end) {
+        scopeFilters.start = windowInfo.start
+        scopeFilters.end = windowInfo.end
+        scopeFilters.date_mode = dateMode
+      }
+      const res = await occurrencesApi.clearMeetingHighlights(scopeFilters)
+      toast.success(res.message)
+      if (filters.only_meeting) {
+        setFilters((prev) => ({ ...prev, only_meeting: undefined }))
+      }
+      setKpiRefreshTick((t) => t + 1)
+    } catch {
+      toast.error('Erro ao limpar pauta de reunião')
     }
   }
 
@@ -349,6 +412,20 @@ export function DailyReport() {
                 {/* KPI badges summary */}
                 {kpis && (
                   <div className="hidden md:flex items-center gap-1.5 text-[11px] text-muted-foreground shrink-0 ml-1">
+                    {(kpis.meeting_count || 0) > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => toggleMetricFilter('only_meeting')}
+                        className={cn(
+                          'inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-semibold cursor-pointer border transition-colors',
+                          filters.only_meeting
+                            ? 'bg-violet-500/20 text-violet-600 dark:text-violet-300 border-violet-500/40'
+                            : 'border-transparent text-violet-600 dark:text-violet-400 hover:bg-violet-500/10'
+                        )}
+                      >
+                        • {kpis.meeting_count} Reunião
+                      </button>
+                    )}
                     {kpis.pane_count > 0 && (
                       <span className="text-red-500 font-semibold">
                         • {kpis.pane_count} Panes
@@ -580,12 +657,23 @@ export function DailyReport() {
                   </div>
                 </div>
 
-                {/* Reference Date Picker & Active Window Badge & Header Toggle */}
-                <div className="flex items-center gap-1.5 shrink-0 ml-auto">
-                  {mode !== 'all' && (
+                {/* Reference Date Picker & Date Mode Reconciliation & Active Window Badge */}
+                <div className="flex items-center gap-1.5 shrink-0 ml-auto flex-wrap">
+                  {mode !== 'all' && selectedDocIds.length === 0 && (
                     <div className="flex items-center gap-1.5">
+                      <select
+                        value={dateMode}
+                        onChange={(e) => handleDateModeChange(e.target.value as DateMode)}
+                        title="Critério de Data da Rotina: concilia abertura e confirmações"
+                        className="h-7 rounded-md border bg-background px-1.5 text-[11px] font-semibold text-foreground focus:ring-1 focus:ring-primary cursor-pointer"
+                      >
+                        <option value="atividade">Data: Abertura + Confirmação</option>
+                        <option value="abertura">Data: Somente Abertura</option>
+                        <option value="confirmacao">Data: Somente Confirmação</option>
+                      </select>
+
                       <span className="text-[11px] text-muted-foreground font-medium hidden md:inline">
-                        Referência:
+                        Ref:
                       </span>
                       <Input
                         type="date"
@@ -630,7 +718,7 @@ export function DailyReport() {
                         size="xs"
                         disabled={exporting}
                         className="h-7 px-2.5 text-xs font-semibold gap-1.5 shrink-0 bg-background hover:bg-muted/60"
-                        title="Exportar Relatório Diário de Turno (PDF, Excel, WhatsApp)"
+                        title="Exportar Relatório Diário ou Pauta da Reunião (PDF, Excel, WhatsApp)"
                       >
                         {exporting ? (
                           <Loader2 className="size-3.5 animate-spin text-primary" />
@@ -641,9 +729,12 @@ export function DailyReport() {
                         <ChevronDown className="size-3 text-muted-foreground ml-0.5" />
                       </Button>
                     </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-56 text-xs">
+                    <DropdownMenuContent align="end" className="w-64 text-xs">
+                      <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                        Rotina Completa (Filtros Atuais)
+                      </DropdownMenuLabel>
                       <DropdownMenuItem
-                        onClick={() => handleExportDaily('pdf')}
+                        onClick={() => handleExportDaily('pdf', 'all')}
                         className="gap-2 cursor-pointer"
                       >
                         <FileText className="size-4 text-red-500" />
@@ -653,7 +744,7 @@ export function DailyReport() {
                         </div>
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        onClick={() => handleExportDaily('xlsx')}
+                        onClick={() => handleExportDaily('xlsx', 'all')}
                         className="gap-2 cursor-pointer"
                       >
                         <FileSpreadsheet className="size-4 text-emerald-600" />
@@ -663,7 +754,7 @@ export function DailyReport() {
                         </div>
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        onClick={() => handleExportDaily('csv')}
+                        onClick={() => handleExportDaily('csv', 'all')}
                         className="gap-2 cursor-pointer"
                       >
                         <Database className="size-4 text-blue-500" />
@@ -673,7 +764,7 @@ export function DailyReport() {
                         </div>
                       </DropdownMenuItem>
                       <DropdownMenuItem
-                        onClick={() => handleExportDaily('whatsapp')}
+                        onClick={() => handleExportDaily('whatsapp', 'all')}
                         className="gap-2 cursor-pointer"
                       >
                         <MessageSquare className="size-4 text-emerald-500" />
@@ -682,6 +773,42 @@ export function DailyReport() {
                           <span className="text-[10px] text-muted-foreground">Texto formatado com emojis</span>
                         </div>
                       </DropdownMenuItem>
+
+                      <DropdownMenuSeparator />
+                      <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-violet-500">
+                        Pauta da Reunião Diária ({kpis?.meeting_count || 0})
+                      </DropdownMenuLabel>
+                      <DropdownMenuItem
+                        disabled={!kpis?.meeting_count}
+                        onClick={() => handleExportDaily('pdf', 'meeting')}
+                        className="gap-2 cursor-pointer"
+                      >
+                        <Presentation className="size-4 text-violet-500" />
+                        <div className="flex flex-col">
+                          <span className="font-semibold">PDF Somente Pauta da Reunião</span>
+                          <span className="text-[10px] text-muted-foreground">Apenas registros destacados</span>
+                        </div>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        disabled={!kpis?.meeting_count}
+                        onClick={() => handleExportDaily('whatsapp', 'meeting')}
+                        className="gap-2 cursor-pointer"
+                      >
+                        <MessageSquare className="size-4 text-violet-500" />
+                        <div className="flex flex-col">
+                          <span className="font-semibold">WhatsApp Pauta da Reunião</span>
+                          <span className="text-[10px] text-muted-foreground">Resumo dos itens selecionados</span>
+                        </div>
+                      </DropdownMenuItem>
+                      {(kpis?.meeting_count || 0) > 0 && (
+                        <DropdownMenuItem
+                          onClick={handleClearMeetingAgenda}
+                          className="gap-2 cursor-pointer text-amber-600 dark:text-amber-400"
+                        >
+                          <RotateCcw className="size-4" />
+                          <span className="font-semibold">Limpar Pauta da Reunião</span>
+                        </DropdownMenuItem>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
 
@@ -752,7 +879,21 @@ export function DailyReport() {
 
                 {/* KPI Quick Filter Badges */}
                 {kpis && (
-                  <div className="flex items-center gap-1 shrink-0 ml-auto">
+                  <div className="flex items-center gap-1 shrink-0 ml-auto flex-wrap">
+                    <button
+                      onClick={() => toggleMetricFilter('only_meeting')}
+                      className={cn(
+                        'px-2 py-0.5 rounded text-[11px] font-semibold border flex items-center gap-1 transition-colors cursor-pointer',
+                        filters.only_meeting
+                          ? 'bg-violet-500/20 text-violet-700 dark:text-violet-300 border-violet-500/60 font-bold shadow-2xs'
+                          : 'bg-muted/40 text-muted-foreground border-border/50 hover:text-foreground hover:border-violet-500/40'
+                      )}
+                      title="Mostrar somente os registros destacados para a Reunião Diária"
+                    >
+                      <Presentation className="size-3 text-violet-500" />
+                      <span>Pauta Reunião: {kpis.meeting_count ?? 0}</span>
+                    </button>
+
                     <button
                       onClick={() => toggleMetricFilter('only_pane')}
                       className={cn(
@@ -824,6 +965,10 @@ export function DailyReport() {
           <Occurrences
             initialFilters={computedFilters}
             hideFilterBar={true}
+            onSortChange={setDailySort}
+            onFilterLocationExternal={(pf) =>
+              setFilters((prev) => ({ ...prev, fl_prefixes: pf ? [pf] : undefined }))
+            }
           />
         </div>
       </div>
