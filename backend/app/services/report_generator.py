@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import html
 import io
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -39,6 +40,9 @@ FIELD_DEFINITIONS = [
 ]
 
 
+_ILLEGAL_CHARACTERS_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
+
+
 def sanitize_spreadsheet_formula(val: str) -> str:
     """Neutralizes formula injection (CWE-1236) in CSV/Excel spreadsheet cells."""
     if not val:
@@ -47,6 +51,31 @@ def sanitize_spreadsheet_formula(val: str) -> str:
     if clean and clean[0] in ("=", "+", "-", "@", "\t", "\r"):
         return f"'{val}"
     return val
+
+
+def sanitize_excel_cell(val: Any) -> Any:
+    """Removes XML-incompatible control characters and formula injection prefixes."""
+    if isinstance(val, str):
+        cleaned = _ILLEGAL_CHARACTERS_RE.sub("", val)
+        return sanitize_spreadsheet_formula(cleaned)
+    return val
+
+
+def get_grouping_key(occ: Occurrence, grouping_field: Optional[str]) -> str:
+    """Extracts a human-readable grouping key from an occurrence."""
+    if not grouping_field or grouping_field == "nenhum":
+        return ""
+    if grouping_field in ("arvore_planta", "posicao_funcional"):
+        pf = occ.posicao_funcional or "Sem Posição"
+        parts = pf.split("-")
+        return parts[0].strip() if parts else pf
+    if grouping_field == "tipo":
+        return (occ.tipo_ocorrencia or "").replace("_", " ")
+    if grouping_field == "status_atc":
+        return occ.status_atc or "Sem Status"
+    if grouping_field == "turno":
+        return occ.turno or "Sem Turno"
+    return str(getattr(occ, grouping_field, "") or "")
 
 
 def format_cell_value(occ: Occurrence, field_key: str, include_comments: bool = True) -> str:
@@ -158,7 +187,7 @@ def generate_pdf_report(
 
     # Header
     now_str = datetime.now().strftime("%d/%m/%Y %H:%M")
-    story.append(Paragraph(header_title, title_style))
+    story.append(Paragraph(html.escape(header_title), title_style))
     story.append(
         Paragraph(
             f"Gerado em: {now_str} | Total de Ocorrências: {len(occurrences)} | Domínio: vision.fk.adm.br",
@@ -177,7 +206,11 @@ def generate_pdf_report(
     headers = [Paragraph(f"<b>{f['label']}</b>", cell_bold_style) for f in fields]
     table_data = [headers]
 
-    for occ in occurrences:
+    sorted_occurrences = list(occurrences)
+    if grouping_field and grouping_field != "nenhum":
+        sorted_occurrences.sort(key=lambda o: (get_grouping_key(o, grouping_field), o.abertura_timestamp or datetime.min))
+
+    for occ in sorted_occurrences:
         row = []
         for f in fields:
             val = format_cell_value(occ, f["key"], include_comments=include_atc_comments)
@@ -222,6 +255,7 @@ def generate_excel_report(
     selected_fields: List[str],
     header_title: str = "ATC Vision — Relatório de Confiabilidade",
     include_atc_comments: bool = True,
+    grouping_field: Optional[str] = None,
 ) -> bytes:
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -233,7 +267,8 @@ def generate_excel_report(
 
     # Header title banner
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(fields))
-    title_cell = ws.cell(row=1, column=1, value=f"{header_title} (Gerado: {datetime.now().strftime('%d/%m/%Y %H:%M')})")
+    title_text = sanitize_excel_cell(f"{header_title} (Gerado: {datetime.now().strftime('%d/%m/%Y %H:%M')})")
+    title_cell = ws.cell(row=1, column=1, value=title_text)
     title_cell.font = Font(name="Calibri", size=14, bold=True, color="FFFFFF")
     title_cell.fill = PatternFill(start_color="1E293B", end_color="1E293B", fill_type="solid")
     title_cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -261,10 +296,14 @@ def generate_excel_report(
     pane_fill = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
     jump_fill = PatternFill(start_color="FEF3C7", end_color="FEF3C7", fill_type="solid")
 
-    for row_idx, occ in enumerate(occurrences, 3):
+    sorted_occurrences = list(occurrences)
+    if grouping_field and grouping_field != "nenhum":
+        sorted_occurrences.sort(key=lambda o: (get_grouping_key(o, grouping_field), o.abertura_timestamp or datetime.min))
+
+    for row_idx, occ in enumerate(sorted_occurrences, 3):
         for col_idx, f in enumerate(fields, 1):
             val = format_cell_value(occ, f["key"], include_comments=include_atc_comments)
-            safe_val = sanitize_spreadsheet_formula(val)
+            safe_val = sanitize_excel_cell(val)
             cell = ws.cell(row=row_idx, column=col_idx, value=safe_val)
             cell.font = Font(name="Calibri", size=9)
             cell.alignment = Alignment(vertical="top", wrap_text=True)
@@ -300,6 +339,7 @@ def generate_csv_report(
     occurrences: List[Occurrence],
     selected_fields: List[str],
     include_atc_comments: bool = True,
+    grouping_field: Optional[str] = None,
 ) -> str:
     fields = [f for f in FIELD_DEFINITIONS if f["key"] in selected_fields]
     if not fields:
@@ -310,9 +350,13 @@ def generate_csv_report(
     output.write("\ufeff")
     writer = csv.writer(output, delimiter=";", quoting=csv.QUOTE_MINIMAL)
 
+    sorted_occurrences = list(occurrences)
+    if grouping_field and grouping_field != "nenhum":
+        sorted_occurrences.sort(key=lambda o: (get_grouping_key(o, grouping_field), o.abertura_timestamp or datetime.min))
+
     writer.writerow([f["label"] for f in fields])
-    for occ in occurrences:
-        row = [sanitize_spreadsheet_formula(format_cell_value(occ, f["key"], include_comments=include_atc_comments).replace("\n", " | ")) for f in fields]
+    for occ in sorted_occurrences:
+        row = [str(sanitize_excel_cell(format_cell_value(occ, f["key"], include_comments=include_atc_comments))).replace("\n", " | ") for f in fields]
         writer.writerow(row)
 
     return output.getvalue()
@@ -322,6 +366,7 @@ def generate_whatsapp_teams_report(
     occurrences: List[Occurrence],
     header_title: str = "ATC Vision — Relatório Diário de Turno",
     include_atc_comments: bool = True,
+    grouping_field: Optional[str] = None,
 ) -> str:
     now_str = datetime.now().strftime("%d/%m/%Y %H:%M")
     panes = [o for o in occurrences if o.teve_pane]
@@ -339,9 +384,18 @@ def generate_whatsapp_teams_report(
     ]
 
     # Detailed list for high priority items first, then others
-    items_to_show = relevantes if relevantes else occurrences[:15]
+    items_to_show = list(relevantes if relevantes else occurrences[:15])
+    if grouping_field and grouping_field != "nenhum":
+        items_to_show.sort(key=lambda o: (get_grouping_key(o, grouping_field), o.abertura_timestamp or datetime.min))
 
+    current_group = None
     for idx, occ in enumerate(items_to_show, 1):
+        if grouping_field and grouping_field != "nenhum":
+            g_key = get_grouping_key(occ, grouping_field)
+            if g_key != current_group:
+                current_group = g_key
+                lines.append(f"📁 *Grupo: {current_group}*")
+                lines.append("──────────────────────────────")
         pf = occ.posicao_funcional or "Área Geral"
         icons = []
         if occ.teve_pane:

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from datetime import date, datetime, time
-from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from typing import Any, Dict, List, Literal, Optional
+from pydantic import BaseModel, Field, field_validator
 
 
 class ConfirmationOut(BaseModel):
@@ -29,13 +29,31 @@ class CommentOut(BaseModel):
 
 
 class CommentCreate(BaseModel):
-    comment_text: str
+    comment_text: str = Field(..., min_length=1)
     is_action_item: bool = False
+
+    @field_validator("comment_text")
+    @classmethod
+    def validate_comment_text(cls, v: str) -> str:
+        s = v.strip()
+        if not s:
+            raise ValueError("O comentário não pode ser vazio.")
+        return s
 
 
 class CommentUpdate(BaseModel):
     comment_text: Optional[str] = None
     is_action_item: Optional[bool] = None
+
+    @field_validator("comment_text")
+    @classmethod
+    def validate_comment_text(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            s = v.strip()
+            if not s:
+                raise ValueError("O comentário não pode ser vazio.")
+            return s
+        return v
 
 
 class BBox(BaseModel):
@@ -161,10 +179,10 @@ class OccurrencePatch(BaseModel):
     flag_analisar: Optional[bool] = None
     flag_relevante: Optional[bool] = None
     flag_destaque_reuniao: Optional[bool] = None
-    status_atc: Optional[str] = None
-    prioridade_atc: Optional[str] = None
+    status_atc: Optional[Literal["NOVO", "EM_ANALISE", "AGUARDANDO_PARADA", "ENCAMINHADO_INSPECAO", "JUMP_ATIVO", "CONCLUIDO"]] = None
+    prioridade_atc: Optional[Literal["BAIXA", "MEDIA", "ALTA", "CRITICA"]] = None
     tags_customizadas: Optional[List[str]] = None
-    jump_status: Optional[str] = None  # PENDENTE | RETIRADO | None
+    jump_status: Optional[Literal["PENDENTE", "RETIRADO"]] = None
 
 
 class OccurrenceCountsOut(BaseModel):

@@ -79,54 +79,7 @@ async def revoke_api_token(
 
 # ---------- Webhooks ----------
 
-BLOCKED_SSRF_HOSTS = {
-    "localhost",
-    "127.0.0.1",
-    "::1",
-    "169.254.169.254",
-    "metadata.google.internal",
-    "instance-data",
-    "db",
-    "backend",
-    "atc-vision-db",
-    "atc-vision-backend",
-}
-
-
-def validate_webhook_url(url: str) -> str:
-    cleaned = url.strip()
-    try:
-        parsed = urlparse(cleaned)
-    except Exception:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="URL de webhook inválida")
-
-    if parsed.scheme not in ("http", "https"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Protocolo do webhook deve ser HTTP ou HTTPS",
-        )
-
-    hostname = (parsed.hostname or "").lower()
-    if not hostname:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Hostname ausente na URL do webhook")
-
-    if hostname in BLOCKED_SSRF_HOSTS or hostname.endswith(".local") or hostname.endswith(".internal"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Destino do webhook não permitido por política de segurança SSRF",
-        )
-
-    try:
-        ip = ipaddress.ip_address(hostname)
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Destino do webhook não permitido por política de segurança SSRF (endereço privado/loopback)",
-            )
-    except ValueError:
-        pass
-
-    return cleaned
+from app.services.webhook_service import validate_webhook_url
 
 
 @router.get("/webhooks", response_model=List[WebhookOut])

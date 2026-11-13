@@ -51,7 +51,7 @@ class PdfDocument(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=generate_uuid)
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     file_hash_sha256: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
-    storage_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    storage_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     ocr_storage_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     report_period_start: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     report_period_end: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

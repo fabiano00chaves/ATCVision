@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional, Set
 
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -178,6 +178,24 @@ async def learn_single_functional_location(
         db,
         [{"code": code, "description": description, "arvore_planta": arvore_planta}],
     )
+
+
+async def sync_functional_location_counts(db: AsyncSession, codes: Iterable[str]) -> None:
+    """Synchronizes occurrence_count for the given functional location full_codes
+    based on the actual count of occurrences in the database.
+    """
+    unique_codes = {c.strip().upper() for c in codes if c and c.strip()}
+    if not unique_codes:
+        return
+    for code in unique_codes:
+        cnt_res = await db.execute(
+            select(func.count(Occurrence.id)).where(Occurrence.posicao_funcional == code)
+        )
+        cnt = cnt_res.scalar() or 0
+        node = await db.get(FunctionalLocation, code)
+        if node:
+            node.occurrence_count = cnt
+    await db.flush()
 
 
 async def rebuild_tree_from_db(db: AsyncSession) -> Dict[str, Any]:

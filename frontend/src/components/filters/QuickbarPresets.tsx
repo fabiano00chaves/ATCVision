@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import type { OccurrenceFilters, Preset } from '@/api/types'
 import { presetsApi } from '@/api'
 import {
@@ -45,6 +45,11 @@ export function QuickbarPresets({
   const [managerOpen, setManagerOpen] = useState(false)
   const [selectedPresetToEdit, setSelectedPresetToEdit] = useState<Preset | null | undefined>(undefined)
 
+  const filtersRef = useRef(filters)
+  filtersRef.current = filters
+  const onChangeRef = useRef(onChange)
+  onChangeRef.current = onChange
+
   const {
     filterPanelMode,
     toggleFilterPanel,
@@ -56,7 +61,7 @@ export function QuickbarPresets({
 
   const activeFiltersCount = countActiveFilters(filters)
 
-  const loadPresets = async () => {
+  const loadPresets = async (isInitial = false) => {
     try {
       setLoading(true)
       const list = await presetsApi.list()
@@ -64,11 +69,14 @@ export function QuickbarPresets({
       setPresets(quick)
 
       // Auto-apply saved preferred preset on initial mount if no filter active
-      const savedId = localStorage.getItem(PREFERRED_PRESET_KEY)
-      if (savedId && !filters.preset_id && activeFiltersCount === 0) {
-        const found = quick.find((p) => p.id === savedId)
-        if (found) {
-          onChange(applyPresetToFilters(filters, found))
+      if (isInitial) {
+        const savedId = localStorage.getItem(PREFERRED_PRESET_KEY)
+        const curFilters = filtersRef.current
+        if (savedId && !curFilters.preset_id && countActiveFilters(curFilters) === 0) {
+          const found = quick.find((p) => p.id === savedId)
+          if (found) {
+            onChangeRef.current(applyPresetToFilters(curFilters, found))
+          }
         }
       }
     } catch {
@@ -79,9 +87,9 @@ export function QuickbarPresets({
   }
 
   useEffect(() => {
-    loadPresets()
+    loadPresets(true)
 
-    const onPresetsChanged = () => loadPresets()
+    const onPresetsChanged = () => loadPresets(false)
     window.addEventListener('atc:presets-changed', onPresetsChanged)
     return () => window.removeEventListener('atc:presets-changed', onPresetsChanged)
   }, [])

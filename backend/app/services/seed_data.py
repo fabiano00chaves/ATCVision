@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -121,23 +121,25 @@ DEFAULT_TEMPLATES = [
 
 
 async def seed_initial_data(db: AsyncSession) -> None:
-    # 1. Admin User
-    admin_res = await db.execute(select(User).where(User.email == settings.ADMIN_EMAIL))
+    # 1. Admin User (Preserve existing password on reboots; seed only if missing)
+    admin_res = await db.execute(
+        select(User).where(func.lower(User.email) == settings.ADMIN_EMAIL.lower())
+    )
     admin = admin_res.scalar_one_or_none()
     if not admin:
         log.info("Creating default admin user: %s", settings.ADMIN_EMAIL)
         new_admin = User(
-            email=settings.ADMIN_EMAIL,
+            email=settings.ADMIN_EMAIL.lower(),
             name=settings.ADMIN_NAME,
             hashed_password=hash_password(settings.ADMIN_PASSWORD),
             is_admin=True,
         )
         db.add(new_admin)
-    else:
-        # Atualiza a senha caso tenha sido redefinida na instalação/variáveis de ambiente
-        admin.hashed_password = hash_password(settings.ADMIN_PASSWORD)
-        admin.is_admin = True
-        db.add(admin)
+        try:
+            await db.flush()
+        except Exception:
+            await db.rollback()
+            log.warning("Admin user already created concurrently by another worker.")
 
     # 2. Presets
     preset_count_res = await db.execute(select(FilterPreset))

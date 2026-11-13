@@ -4,6 +4,7 @@ import base64
 import os
 from typing import Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+import fitz
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,7 +33,7 @@ async def ingest_endpoint(
 ):
     content_type = request.headers.get("content-type", "")
 
-    max_bytes = 100 * 1024 * 1024
+    max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
     if "application/json" in content_type:
         try:
@@ -49,7 +50,7 @@ async def ingest_endpoint(
         if len(pdf_bytes) > max_bytes:
             raise HTTPException(
                 status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail=f"Arquivo {filename} excede o limite máximo de 100MB.",
+                detail=f"Arquivo {filename} excede o limite máximo de {settings.MAX_UPLOAD_SIZE_MB}MB.",
             )
 
         if not pdf_bytes.startswith(b"%PDF-"):
@@ -58,14 +59,21 @@ async def ingest_endpoint(
                 detail="Conteúdo base64 não é um arquivo PDF válido.",
             )
 
+        settings.STORAGE_DIR.mkdir(parents=True, exist_ok=True)
         temp_path = settings.STORAGE_DIR / f"api_ingest_{os.urandom(8).hex()}_{filename}"
         try:
             with open(temp_path, "wb") as f_out:
                 f_out.write(pdf_bytes)
 
-            doc, created, updated, st = await ingest_pdf_file(
-                db, temp_path, filename, source="WEBHOOK_API"
-            )
+            try:
+                doc, created, updated, st = await ingest_pdf_file(
+                    db, temp_path, filename, source="WEBHOOK_API"
+                )
+            except (fitz.FileDataError, ValueError) as parse_err:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Arquivo PDF corrompido ou formato não suportado: {parse_err}",
+                )
 
             doc_out = None
             if doc:
@@ -124,6 +132,7 @@ async def ingest_endpoint(
                 detail="Arquivo fornecido não é um PDF válido.",
             )
         await file.seek(0)
+        settings.STORAGE_DIR.mkdir(parents=True, exist_ok=True)
         temp_path = settings.STORAGE_DIR / f"api_ingest_{os.urandom(8).hex()}_{filename}"
         total_read = 0
         try:
@@ -133,13 +142,19 @@ async def ingest_endpoint(
                     if total_read > max_bytes:
                         raise HTTPException(
                             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                            detail=f"Arquivo {filename} excede o limite máximo de 100MB.",
+                            detail=f"Arquivo {filename} excede o limite máximo de {settings.MAX_UPLOAD_SIZE_MB}MB.",
                         )
                     f_out.write(chunk)
 
-            doc, created, updated, st = await ingest_pdf_file(
-                db, temp_path, filename, source="WEBHOOK_API"
-            )
+            try:
+                doc, created, updated, st = await ingest_pdf_file(
+                    db, temp_path, filename, source="WEBHOOK_API"
+                )
+            except (fitz.FileDataError, ValueError) as parse_err:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Arquivo PDF corrompido ou formato não suportado: {parse_err}",
+                )
 
             doc_out = None
             if doc:

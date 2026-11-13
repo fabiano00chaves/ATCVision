@@ -54,6 +54,8 @@ def purge_doc_disk_files(doc: PdfDocument) -> int:
                 os.remove(p)
             except OSError:
                 pass
+    doc.storage_path = None
+    doc.ocr_storage_path = None
     return freed
 
 
@@ -67,35 +69,58 @@ def format_bytes(num_bytes: int) -> str:
     return f"{num_bytes / (1024 * 1024 * 1024):.2f} GB"
 
 
-async def remove_document_occurrences(db: AsyncSession, doc_id: str) -> int:
+async def remove_documents_occurrences_batch(db: AsyncSession, doc_ids: List[str]) -> tuple[int, set[str]]:
+    """Removes occurrences that belong exclusively to the given document IDs.
+    Returns (deleted_count, affected_functional_location_codes).
+    """
+    if not doc_ids:
+        return 0, set()
+
     map_res = await db.execute(
         select(OccurrencePdfMapping.occurrence_id).where(
-            OccurrencePdfMapping.pdf_document_id == doc_id
+            OccurrencePdfMapping.pdf_document_id.in_(doc_ids)
         )
     )
-    occ_ids = [r[0] for r in map_res.fetchall()]
+    occ_ids = {r[0] for r in map_res.fetchall()}
     if not occ_ids:
-        return 0
+        return 0, set()
 
     other_maps_res = await db.execute(
         select(OccurrencePdfMapping.occurrence_id)
         .where(
             OccurrencePdfMapping.occurrence_id.in_(occ_ids),
-            OccurrencePdfMapping.pdf_document_id != doc_id,
+            OccurrencePdfMapping.pdf_document_id.notin_(doc_ids),
         )
         .distinct()
     )
-    shared_occ_ids = set(r[0] for r in other_maps_res.fetchall())
-    exclusive_occ_ids = [oid for oid in occ_ids if oid not in shared_occ_ids]
+    shared_occ_ids = {r[0] for r in other_maps_res.fetchall()}
+    exclusive_occ_ids = list(occ_ids - shared_occ_ids)
 
     deleted_count = 0
+    affected_fl_codes: set[str] = set()
+
     if exclusive_occ_ids:
+        fl_res = await db.execute(
+            select(Occurrence.posicao_funcional).where(
+                Occurrence.id.in_(exclusive_occ_ids),
+                Occurrence.posicao_funcional.isnot(None),
+            )
+        )
+        for r in fl_res.fetchall():
+            if r[0]:
+                affected_fl_codes.add(r[0])
+
         del_res = await db.execute(
             delete(Occurrence).where(Occurrence.id.in_(exclusive_occ_ids))
         )
         deleted_count = del_res.rowcount or len(exclusive_occ_ids)
 
-    return deleted_count
+    return deleted_count, affected_fl_codes
+
+
+async def remove_document_occurrences(db: AsyncSession, doc_id: str) -> int:
+    cnt, _ = await remove_documents_occurrences_batch(db, [doc_id])
+    return cnt
 
 
 @router.post("/upload", response_model=UploadResult)
@@ -121,10 +146,11 @@ async def upload_documents(
             continue
 
         await file.seek(0)
-        # Limit max body size: 100 MB
+        settings.STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+        # Limit max body size: MAX_UPLOAD_SIZE_MB
         temp_path = settings.STORAGE_DIR / f"temp_{os.urandom(8).hex()}_{filename}"
         total_read = 0
-        max_bytes = 100 * 1024 * 1024
+        max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
 
         try:
             with open(temp_path, "wb") as f_out:
@@ -133,7 +159,7 @@ async def upload_documents(
                     if total_read > max_bytes:
                         raise HTTPException(
                             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                            detail=f"Arquivo {filename} excede o limite máximo de 100MB.",
+                            detail=f"Arquivo {filename} excede o limite máximo de {settings.MAX_UPLOAD_SIZE_MB}MB.",
                         )
                     f_out.write(chunk)
 
@@ -198,6 +224,13 @@ async def upload_documents(
                 )
             )
 
+        except HTTPException:
+            if temp_path.exists():
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+            raise
         except Exception as exc:
             if temp_path.exists():
                 try:
@@ -354,6 +387,12 @@ async def execute_document_cleanup(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acesso restrito: apenas administradores podem executar o saneamento ou expurgo de documentos.",
+        )
+
     query = select(PdfDocument)
     has_scope = False
 
@@ -419,6 +458,7 @@ async def execute_document_cleanup(
                 )
             )
             occs_preserved += occ_cnt_res.scalar() or 0
+        await db.commit()
         message = (
             f"Otimização concluída: {len(docs)} arquivo(s) PDF liberado(s) do disco "
             f"({format_bytes(bytes_freed)} liberados). {occs_preserved} ocorrência(s) preservada(s) intactas no banco de dados."
@@ -426,24 +466,25 @@ async def execute_document_cleanup(
 
     else:  # delete_complete
         # Hardened safety checks: admin-only and explicit 2-tier challenge confirmation string
-        if not current_user.is_admin:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Apenas administradores podem executar o expurgo completo de documentos e ocorrências.",
-            )
-
         if not req.confirmation_challenge or req.confirmation_challenge.strip().upper() != "EXPURGAR":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Confirmação obrigatória: digite a palavra 'EXPURGAR' para autorizar a exclusão definitiva.",
             )
 
+        target_doc_ids = [d.id for d in docs]
         for d in docs:
             freed = purge_doc_disk_files(d)
             bytes_freed += freed
-            if req.delete_occurrences:
-                del_cnt = await remove_document_occurrences(db, d.id)
-                occs_deleted += del_cnt
+
+        if req.delete_occurrences:
+            del_cnt, affected_fls = await remove_documents_occurrences_batch(db, target_doc_ids)
+            occs_deleted += del_cnt
+            if affected_fls:
+                from app.services.functional_location_service import sync_functional_location_counts
+                await sync_functional_location_counts(db, affected_fls)
+
+        for d in docs:
             await db.delete(d)
 
         await db.commit()
@@ -585,10 +626,10 @@ async def delete_document(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if not purge_only and not current_user.is_admin:
+    if not current_user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Apenas administradores podem excluir documentos e ocorrências definitivamente do sistema.",
+            detail="Apenas administradores podem excluir documentos definitivamente ou liberar arquivos físicos do sistema.",
         )
 
     res = await db.execute(select(PdfDocument).where(PdfDocument.id == document_id))
@@ -599,6 +640,7 @@ async def delete_document(
     freed = purge_doc_disk_files(doc)
 
     if purge_only:
+        await db.commit()
         # Keep document record and occurrences in DB
         return {
             "ok": True,
@@ -608,7 +650,10 @@ async def delete_document(
 
     occs_deleted = 0
     if delete_occurrences:
-        occs_deleted = await remove_document_occurrences(db, doc.id)
+        occs_deleted, affected_fls = await remove_documents_occurrences_batch(db, [doc.id])
+        if affected_fls:
+            from app.services.functional_location_service import sync_functional_location_counts
+            await sync_functional_location_counts(db, affected_fls)
 
     await db.delete(doc)
     await db.commit()

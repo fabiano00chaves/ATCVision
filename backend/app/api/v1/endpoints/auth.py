@@ -17,17 +17,13 @@ router = APIRouter()
 
 
 def is_secure_request(request: Request) -> bool:
-    if settings.COOKIE_SECURE:
+    if settings.COOKIE_SECURE is not None:
+        return settings.COOKIE_SECURE
+    proto = request.headers.get("x-forwarded-proto", "").lower()
+    cf_visitor = request.headers.get("cf-visitor", "").lower()
+    if proto == "https" or '"scheme":"https"' in cf_visitor or request.url.scheme == "https":
         return True
     if settings.ENVIRONMENT == "production":
-        return True
-    proto = request.headers.get("x-forwarded-proto", "").lower()
-    if proto == "https":
-        return True
-    cf_visitor = request.headers.get("cf-visitor", "").lower()
-    if '"scheme":"https"' in cf_visitor:
-        return True
-    if request.url.scheme == "https":
         return True
     return False
 
@@ -84,7 +80,14 @@ async def get_me(
     current_user: User = Depends(get_current_user),
     atc_session: Optional[str] = Cookie(None),
 ):
-    if not atc_session and current_user and getattr(current_user, "id", None) and current_user.id != "default-admin":
+    auth_method = getattr(request.state, "auth_method", None)
+    is_api_key_user = (
+        auth_method == "api_key"
+        or (current_user and getattr(current_user, "id", None) in ("master-api-key", "default-admin"))
+        or (current_user and getattr(current_user, "email", "").startswith("token-"))
+    )
+
+    if not atc_session and current_user and getattr(current_user, "id", None) and not is_api_key_user:
         access_token = create_access_token(
             subject=current_user.id,
             expires_delta=timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES),

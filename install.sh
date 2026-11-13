@@ -427,8 +427,12 @@ CORS_ORIGINS=["https://vision.fk.adm.br", "http://localhost:${HOST_PORT}", "http
 COOKIE_SECURE=true
 COOKIE_SAMESITE=lax
 
+CLOUDFLARE_AUTH_ENABLED=true
+# CLOUDFLARE_ACCESS_TEAM_DOMAIN=seu-time
+# CLOUDFLARE_ACCESS_AUD=sua-tag-aud-cloudflare
+
 MAX_UPLOAD_SIZE_MB=100
-STORAGE_DIR=/app/storage
+STORAGE_DIR=/app/storage/uploads
 WATCH_FOLDER_PATH=/app/storage/watch
 WATCH_FOLDER_INTERVAL_SECONDS=60
 OCR_FALLBACK_ENABLED=true

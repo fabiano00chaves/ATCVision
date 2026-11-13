@@ -5,6 +5,7 @@ import type {
   GenerateRequest,
   OccurrenceFilters,
   ReportField,
+  ReportScope,
   ReportTemplate,
 } from '@/api/types'
 import { FilterSidebar } from '@/components/filters/FilterSidebar'
@@ -45,12 +46,11 @@ export function Reports() {
 
   // Report Builder State
   const [headerTitle, setHeaderTitle] = useState('ATC Vision — Relatório de Confiabilidade')
-  const [scope, setScope] = useState<'relevant_or_analyze' | 'relevant' | 'analyze' | 'all'>(
-    'relevant_or_analyze'
-  )
+  const [scope, setScope] = useState<ReportScope>('relevant_or_analyze')
+  const [groupingField, setGroupingField] = useState<string>('arvore_planta')
   const [selectedFieldKeys, setSelectedFieldKeys] = useState<string[]>([])
   const [includeComments, setIncludeComments] = useState<boolean>(true)
-  const [exportFormat, setExportFormat] = useState<'pdf' | 'xlsx' | 'csv' | 'whatsapp'>('pdf')
+  const [exportFormat, setExportFormat] = useState<ExportFormat>('pdf')
 
   // Text preview modal for WhatsApp / Teams
   const [textPreviewOpen, setTextPreviewOpen] = useState(false)
@@ -85,6 +85,7 @@ export function Reports() {
     setSelectedTemplateId(t.id)
     setHeaderTitle(t.header_title)
     setSelectedFieldKeys(t.selected_fields)
+    setGroupingField(t.grouping_field || 'arvore_planta')
     setIncludeComments(t.include_atc_comments)
     setExportFormat((t.export_format_default as any) || 'pdf')
   }
@@ -100,6 +101,7 @@ export function Reports() {
     const req: GenerateRequest = {
       template_id: selectedTemplateId || undefined,
       selected_fields: selectedFieldKeys,
+      grouping_field: groupingField,
       header_title: headerTitle,
       include_atc_comments: includeComments,
       format: fmt,
@@ -137,7 +139,7 @@ export function Reports() {
         name: newTemplateName.trim(),
         description: newTemplateDesc.trim(),
         selected_fields: selectedFieldKeys,
-        grouping_field: 'arvore_planta',
+        grouping_field: groupingField as any,
         include_atc_comments: includeComments,
         header_title: headerTitle,
         export_format_default: exportFormat,
@@ -157,6 +159,9 @@ export function Reports() {
     try {
       await reportsApi.deleteTemplate(id)
       setTemplates((prev) => prev.filter((t) => t.id !== id))
+      if (selectedTemplateId === id) {
+        setSelectedTemplateId('')
+      }
       toast.success('Template removido')
     } catch {
       toast.error('Erro ao remover template')
@@ -252,6 +257,22 @@ export function Reports() {
                   </label>
                 ))}
               </div>
+            </div>
+
+            <div className="space-y-1.5 pt-2 border-t">
+              <label className="text-xs font-semibold">Agrupamento de Linhas</label>
+              <select
+                value={groupingField}
+                onChange={(e) => setGroupingField(e.target.value)}
+                className="w-full h-8 rounded-md border bg-background px-2 text-xs font-medium"
+              >
+                <option value="arvore_planta">Árvore de Planta / Linha</option>
+                <option value="posicao_funcional">Posição Funcional</option>
+                <option value="tipo">Tipo de Ocorrência</option>
+                <option value="status_atc">Status ATC</option>
+                <option value="turno">Turno</option>
+                <option value="nenhum">Sem Agrupamento</option>
+              </select>
             </div>
 
             <div className="pt-2 border-t">

@@ -187,22 +187,39 @@ async def ingest_pdf_file(
     specialty_rules = sys_settings.get("specialty_rules")
 
     # Destination storage paths
+    settings.STORAGE_DIR.mkdir(parents=True, exist_ok=True)
     doc_id = str(Path(file_path).stem)
     stored_pdf_name = f"{file_hash[:16]}_{original_filename}"
     target_storage = settings.STORAGE_DIR / stored_pdf_name
     ocr_storage = settings.STORAGE_DIR / f"ocr_{stored_pdf_name}"
 
-    if file_path != target_storage:
-        shutil.copy2(file_path, target_storage)
+    def _cleanup_partial_files():
+        if target_storage.exists() and file_path != target_storage:
+            try:
+                os.remove(target_storage)
+            except OSError:
+                pass
+        if ocr_storage.exists():
+            try:
+                os.remove(ocr_storage)
+            except OSError:
+                pass
 
-    # OCR step if needed
-    viewable_path, ocr_applied, ocr_warnings = ensure_text_layer(
-        target_storage, ocr_storage, enabled=ocr_enabled, min_chars_per_page=ocr_min_chars
-    )
+    try:
+        if file_path != target_storage:
+            shutil.copy2(file_path, target_storage)
 
-    # Extract data from viewable PDF (preserves coordinate alignment)
-    with fitz.open(viewable_path) as doc:
-        extraction = extract_from_document(doc, specialty_rules=specialty_rules)
+        # OCR step if needed
+        viewable_path, ocr_applied, ocr_warnings = ensure_text_layer(
+            target_storage, ocr_storage, enabled=ocr_enabled, min_chars_per_page=ocr_min_chars
+        )
+
+        # Extract data from viewable PDF (preserves coordinate alignment)
+        with fitz.open(viewable_path) as doc:
+            extraction = extract_from_document(doc, specialty_rules=specialty_rules)
+    except Exception as exc:
+        _cleanup_partial_files()
+        raise exc
 
     all_warnings = ocr_warnings + extraction.warnings
 
@@ -221,97 +238,193 @@ async def ingest_pdf_file(
         page_sizes=extraction.page_sizes,
     )
     db.add(pdf_doc)
-    await db.flush()
+    try:
+        await db.flush()
 
-    created_count = 0
-    updated_count = 0
-    fl_items_to_learn: List[Dict[str, Any]] = []
+        created_count = 0
+        updated_count = 0
+        fl_items_to_learn: List[Dict[str, Any]] = []
 
-    for parsed_occ in extraction.occurrences:
-        if parsed_occ.posicao_funcional:
-            fl_items_to_learn.append({
-                "code": parsed_occ.posicao_funcional,
-                "description": parsed_occ.descricao_posicao_funcional or parsed_occ.descricao_curta_objeto,
-                "arvore_planta": parsed_occ.arvore_planta,
-            })
-        key = parsed_occ.unique_sap_key
-        if not key:
-            continue
+        for parsed_occ in extraction.occurrences:
+            key = parsed_occ.unique_sap_key
+            if not key:
+                continue
 
-        occ_res = await db.execute(
-            select(Occurrence)
-            .options(selectinload(Occurrence.confirmations), selectinload(Occurrence.mappings))
-            .where(Occurrence.unique_sap_key == key)
-        )
-        existing_occ = occ_res.scalar_one_or_none()
+            occ_res = await db.execute(
+                select(Occurrence)
+                .options(selectinload(Occurrence.confirmations), selectinload(Occurrence.mappings))
+                .where(Occurrence.unique_sap_key == key)
+            )
+            existing_occ = occ_res.scalar_one_or_none()
 
-        search_txt = build_search_text(parsed_occ)
+            search_txt = build_search_text(parsed_occ)
 
-        if existing_occ:
-            # Update SAP fields only - PRESERVE ATC FLAGS, STATUS, PRIORIDADE, TAGS, COMMENTS
-            existing_occ.tipo_ocorrencia = parsed_occ.tipo_ocorrencia
-            existing_occ.numero_nota = parsed_occ.numero_nota or existing_occ.numero_nota
-            existing_occ.numero_ordem = parsed_occ.numero_ordem or existing_occ.numero_ordem
-            existing_occ.titulo = parsed_occ.titulo or existing_occ.titulo
-            existing_occ.status_ordem = parsed_occ.status_ordem or existing_occ.status_ordem
-            existing_occ.prioridade_sap = parsed_occ.prioridade_sap or existing_occ.prioridade_sap
-            existing_occ.tipo_ordem_sap = parsed_occ.tipo_ordem_sap or existing_occ.tipo_ordem_sap
-            existing_occ.data_abertura = parsed_occ.data_abertura or existing_occ.data_abertura
-            existing_occ.hora_abertura = parsed_occ.hora_abertura or existing_occ.hora_abertura
-            existing_occ.abertura_timestamp = parsed_occ.abertura_timestamp or existing_occ.abertura_timestamp
-            existing_occ.turno = parsed_occ.turno or existing_occ.turno
-            existing_occ.grupo_planejamento = parsed_occ.grupo_planejamento or existing_occ.grupo_planejamento
-            existing_occ.reportado_por_id = parsed_occ.reportado_por_id or existing_occ.reportado_por_id
-            existing_occ.reportado_por_nome = parsed_occ.reportado_por_nome or existing_occ.reportado_por_nome
-            existing_occ.especialidade = parsed_occ.especialidade
-            existing_occ.posicao_funcional = parsed_occ.posicao_funcional or existing_occ.posicao_funcional
-            existing_occ.arvore_planta = parsed_occ.arvore_planta or existing_occ.arvore_planta
-            existing_occ.descricao_posicao_funcional = (
-                parsed_occ.descricao_posicao_funcional or existing_occ.descricao_posicao_funcional
-            )
-            existing_occ.descricao_curta_objeto = (
-                parsed_occ.descricao_curta_objeto or existing_occ.descricao_curta_objeto
-            )
-            existing_occ.equipamento_codigo = parsed_occ.equipamento_codigo or existing_occ.equipamento_codigo
-            existing_occ.equipamento_descricao = (
-                parsed_occ.equipamento_descricao or existing_occ.equipamento_descricao
-            )
-            existing_occ.descricao_longa_notificacao = (
-                parsed_occ.descricao_longa_notificacao or existing_occ.descricao_longa_notificacao
-            )
-            existing_occ.descricao_longa_ordem = (
-                parsed_occ.descricao_longa_ordem or existing_occ.descricao_longa_ordem
-            )
-            existing_occ.texto_confirmacao = parsed_occ.texto_confirmacao or existing_occ.texto_confirmacao
-            existing_occ.defeito = parsed_occ.defeito or existing_occ.defeito
-            existing_occ.causa = parsed_occ.causa or existing_occ.causa
-            existing_occ.observacoes_objeto = parsed_occ.observacoes_objeto or existing_occ.observacoes_objeto
-            existing_occ.inicio_avaria = parsed_occ.inicio_avaria or existing_occ.inicio_avaria
-            existing_occ.fim_avaria = parsed_occ.fim_avaria or existing_occ.fim_avaria
-            existing_occ.duracao_avaria_min = parsed_occ.duracao_avaria_min or existing_occ.duracao_avaria_min
-            existing_occ.teve_pane = parsed_occ.teve_pane or existing_occ.teve_pane
-            existing_occ.duracao_pane_min = max(existing_occ.duracao_pane_min, parsed_occ.duracao_pane_min)
-            existing_occ.tem_jump_force = parsed_occ.tem_jump_force or existing_occ.tem_jump_force
-            existing_occ.detalhe_jump_tarefas = (
-                parsed_occ.detalhe_jump_tarefas or existing_occ.detalhe_jump_tarefas
-            )
-            existing_occ.hh_total_minutos = max(existing_occ.hh_total_minutos, parsed_occ.hh_total_minutos)
-            existing_occ.quantidade_executantes = max(
-                existing_occ.quantidade_executantes, parsed_occ.quantidade_executantes
-            )
-            existing_occ.operacoes = parsed_occ.operacoes or existing_occ.operacoes
-            existing_occ.objetos = parsed_occ.objetos or existing_occ.objetos
-            existing_occ.search_text = (existing_occ.search_text or "") + " " + search_txt
-
-            # Overwrite confirmations with the latest non-empty set
-            if parsed_occ.confirmations:
-                await db.execute(
-                    delete(OccurrenceConfirmation).where(OccurrenceConfirmation.occurrence_id == existing_occ.id)
+            if existing_occ:
+                # Update SAP fields only - PRESERVE ATC FLAGS, STATUS, PRIORIDADE, TAGS, COMMENTS
+                existing_occ.tipo_ocorrencia = parsed_occ.tipo_ocorrencia
+                existing_occ.numero_nota = parsed_occ.numero_nota or existing_occ.numero_nota
+                existing_occ.numero_ordem = parsed_occ.numero_ordem or existing_occ.numero_ordem
+                existing_occ.titulo = parsed_occ.titulo or existing_occ.titulo
+                existing_occ.status_ordem = parsed_occ.status_ordem or existing_occ.status_ordem
+                existing_occ.prioridade_sap = parsed_occ.prioridade_sap or existing_occ.prioridade_sap
+                existing_occ.tipo_ordem_sap = parsed_occ.tipo_ordem_sap or existing_occ.tipo_ordem_sap
+                existing_occ.data_abertura = parsed_occ.data_abertura or existing_occ.data_abertura
+                existing_occ.hora_abertura = parsed_occ.hora_abertura or existing_occ.hora_abertura
+                existing_occ.abertura_timestamp = parsed_occ.abertura_timestamp or existing_occ.abertura_timestamp
+                existing_occ.turno = parsed_occ.turno or existing_occ.turno
+                existing_occ.grupo_planejamento = parsed_occ.grupo_planejamento or existing_occ.grupo_planejamento
+                existing_occ.reportado_por_id = parsed_occ.reportado_por_id or existing_occ.reportado_por_id
+                existing_occ.reportado_por_nome = parsed_occ.reportado_por_nome or existing_occ.reportado_por_nome
+                existing_occ.especialidade = parsed_occ.especialidade
+                existing_occ.posicao_funcional = parsed_occ.posicao_funcional or existing_occ.posicao_funcional
+                existing_occ.arvore_planta = parsed_occ.arvore_planta or existing_occ.arvore_planta
+                existing_occ.descricao_posicao_funcional = (
+                    parsed_occ.descricao_posicao_funcional or existing_occ.descricao_posicao_funcional
                 )
+                existing_occ.descricao_curta_objeto = (
+                    parsed_occ.descricao_curta_objeto or existing_occ.descricao_curta_objeto
+                )
+                existing_occ.equipamento_codigo = parsed_occ.equipamento_codigo or existing_occ.equipamento_codigo
+                existing_occ.equipamento_descricao = (
+                    parsed_occ.equipamento_descricao or existing_occ.equipamento_descricao
+                )
+                existing_occ.descricao_longa_notificacao = (
+                    parsed_occ.descricao_longa_notificacao or existing_occ.descricao_longa_notificacao
+                )
+                existing_occ.descricao_longa_ordem = (
+                    parsed_occ.descricao_longa_ordem or existing_occ.descricao_longa_ordem
+                )
+                existing_occ.texto_confirmacao = parsed_occ.texto_confirmacao or existing_occ.texto_confirmacao
+                existing_occ.defeito = parsed_occ.defeito or existing_occ.defeito
+                existing_occ.causa = parsed_occ.causa or existing_occ.causa
+                existing_occ.observacoes_objeto = parsed_occ.observacoes_objeto or existing_occ.observacoes_objeto
+                existing_occ.inicio_avaria = parsed_occ.inicio_avaria or existing_occ.inicio_avaria
+                existing_occ.fim_avaria = parsed_occ.fim_avaria or existing_occ.fim_avaria
+                if parsed_occ.duracao_avaria_min is not None:
+                    existing_occ.duracao_avaria_min = parsed_occ.duracao_avaria_min
+                if parsed_occ.teve_pane is not None:
+                    existing_occ.teve_pane = parsed_occ.teve_pane
+                if parsed_occ.duracao_pane_min is not None:
+                    existing_occ.duracao_pane_min = max(existing_occ.duracao_pane_min or 0.0, parsed_occ.duracao_pane_min)
+                if parsed_occ.tem_jump_force is not None:
+                    existing_occ.tem_jump_force = parsed_occ.tem_jump_force
+                existing_occ.detalhe_jump_tarefas = (
+                    parsed_occ.detalhe_jump_tarefas or existing_occ.detalhe_jump_tarefas
+                )
+                if parsed_occ.hh_total_minutos is not None:
+                    existing_occ.hh_total_minutos = max(existing_occ.hh_total_minutos or 0, parsed_occ.hh_total_minutos)
+                if parsed_occ.quantidade_executantes is not None:
+                    existing_occ.quantidade_executantes = max(
+                        existing_occ.quantidade_executantes or 0, parsed_occ.quantidade_executantes
+                    )
+                existing_occ.operacoes = parsed_occ.operacoes or existing_occ.operacoes
+                existing_occ.objetos = parsed_occ.objetos or existing_occ.objetos
+                existing_occ.search_text = search_txt
+
+                # Overwrite confirmations with the latest non-empty set
+                if parsed_occ.confirmations:
+                    await db.execute(
+                        delete(OccurrenceConfirmation).where(OccurrenceConfirmation.occurrence_id == existing_occ.id)
+                    )
+                    for conf in parsed_occ.confirmations:
+                        db.add(
+                            OccurrenceConfirmation(
+                                occurrence_id=existing_occ.id,
+                                data_execucao=conf.data_execucao,
+                                hora_execucao=conf.hora_execucao,
+                                centro_trabalho=conf.centro_trabalho,
+                                matricula=conf.matricula,
+                                nome_executante=conf.nome_executante,
+                                duracao_min=conf.duracao_min,
+                            )
+                        )
+
+                conf_min, conf_max = compute_confirmation_bounds(
+                    parsed_occ.confirmations or existing_occ.confirmations,
+                    parsed_occ.texto_confirmacao or existing_occ.texto_confirmacao,
+                )
+                if conf_min is not None:
+                    if existing_occ.primeira_confirmacao_em is None or conf_min < existing_occ.primeira_confirmacao_em:
+                        existing_occ.primeira_confirmacao_em = conf_min
+                if conf_max is not None:
+                    if existing_occ.ultima_confirmacao_em is None or conf_max > existing_occ.ultima_confirmacao_em:
+                        existing_occ.ultima_confirmacao_em = conf_max
+
+                # Add mapping for this PDF if not present
+                mapping = OccurrencePdfMapping(
+                    occurrence_id=existing_occ.id,
+                    pdf_document_id=pdf_doc.id,
+                    start_page=parsed_occ.start_page,
+                    end_page=parsed_occ.end_page,
+                    field_bboxes=parsed_occ.field_bboxes,
+                )
+                db.add(mapping)
+                updated_count += 1
+            else:
+                # Create new occurrence
+                conf_min, conf_max = compute_confirmation_bounds(
+                    parsed_occ.confirmations,
+                    parsed_occ.texto_confirmacao,
+                )
+                new_occ = Occurrence(
+                    unique_sap_key=key,
+                    tipo_ocorrencia=parsed_occ.tipo_ocorrencia,
+                    numero_nota=parsed_occ.numero_nota,
+                    numero_ordem=parsed_occ.numero_ordem,
+                    titulo=parsed_occ.titulo,
+                    status_ordem=parsed_occ.status_ordem,
+                    prioridade_sap=parsed_occ.prioridade_sap,
+                    tipo_ordem_sap=parsed_occ.tipo_ordem_sap,
+                    data_abertura=parsed_occ.data_abertura,
+                    hora_abertura=parsed_occ.hora_abertura,
+                    abertura_timestamp=parsed_occ.abertura_timestamp,
+                    turno=parsed_occ.turno,
+                    grupo_planejamento=parsed_occ.grupo_planejamento,
+                    reportado_por_id=parsed_occ.reportado_por_id,
+                    reportado_por_nome=parsed_occ.reportado_por_nome,
+                    especialidade=parsed_occ.especialidade,
+                    posicao_funcional=parsed_occ.posicao_funcional,
+                    arvore_planta=parsed_occ.arvore_planta,
+                    descricao_posicao_funcional=parsed_occ.descricao_posicao_funcional,
+                    descricao_curta_objeto=parsed_occ.descricao_curta_objeto,
+                    equipamento_codigo=parsed_occ.equipamento_codigo,
+                    equipamento_descricao=parsed_occ.equipamento_descricao,
+                    descricao_longa_notificacao=parsed_occ.descricao_longa_notificacao,
+                    descricao_longa_ordem=parsed_occ.descricao_longa_ordem,
+                    texto_confirmacao=parsed_occ.texto_confirmacao,
+                    defeito=parsed_occ.defeito,
+                    causa=parsed_occ.causa,
+                    observacoes_objeto=parsed_occ.observacoes_objeto,
+                    inicio_avaria=parsed_occ.inicio_avaria,
+                    fim_avaria=parsed_occ.fim_avaria,
+                    duracao_avaria_min=parsed_occ.duracao_avaria_min,
+                    teve_pane=parsed_occ.teve_pane,
+                    duracao_pane_min=parsed_occ.duracao_pane_min,
+                    tem_jump_force=parsed_occ.tem_jump_force,
+                    jump_origem=parsed_occ.jump_origem,
+                    detalhe_jump_tarefas=parsed_occ.detalhe_jump_tarefas,
+                    jump_status="PENDENTE" if parsed_occ.tem_jump_force else None,
+                    hh_total_minutos=parsed_occ.hh_total_minutos,
+                    quantidade_executantes=parsed_occ.quantidade_executantes,
+                    primeira_confirmacao_em=conf_min,
+                    ultima_confirmacao_em=conf_max,
+                    operacoes=parsed_occ.operacoes,
+                    objetos=parsed_occ.objetos,
+                    flag_analisar=False,
+                    flag_relevante=False,
+                    flag_destaque_reuniao=False,
+                    status_atc="NOVO",
+                    prioridade_atc=None,
+                    tags_customizadas=[],
+                    search_text=search_txt,
+                )
+                db.add(new_occ)
+                await db.flush()
+
                 for conf in parsed_occ.confirmations:
                     db.add(
                         OccurrenceConfirmation(
-                            occurrence_id=existing_occ.id,
+                            occurrence_id=new_occ.id,
                             data_execucao=conf.data_execucao,
                             hora_execucao=conf.hora_execucao,
                             centro_trabalho=conf.centro_trabalho,
@@ -321,121 +434,36 @@ async def ingest_pdf_file(
                         )
                     )
 
-            conf_min, conf_max = compute_confirmation_bounds(
-                parsed_occ.confirmations or existing_occ.confirmations,
-                parsed_occ.texto_confirmacao or existing_occ.texto_confirmacao,
-            )
-            if conf_min is not None:
-                if existing_occ.primeira_confirmacao_em is None or conf_min < existing_occ.primeira_confirmacao_em:
-                    existing_occ.primeira_confirmacao_em = conf_min
-            if conf_max is not None:
-                if existing_occ.ultima_confirmacao_em is None or conf_max > existing_occ.ultima_confirmacao_em:
-                    existing_occ.ultima_confirmacao_em = conf_max
-
-            # Add mapping for this PDF if not present
-            mapping = OccurrencePdfMapping(
-                occurrence_id=existing_occ.id,
-                pdf_document_id=pdf_doc.id,
-                start_page=parsed_occ.start_page,
-                end_page=parsed_occ.end_page,
-                field_bboxes=parsed_occ.field_bboxes,
-            )
-            db.add(mapping)
-            updated_count += 1
-        else:
-            # Create new occurrence
-            conf_min, conf_max = compute_confirmation_bounds(
-                parsed_occ.confirmations,
-                parsed_occ.texto_confirmacao,
-            )
-            new_occ = Occurrence(
-                unique_sap_key=key,
-                tipo_ocorrencia=parsed_occ.tipo_ocorrencia,
-                numero_nota=parsed_occ.numero_nota,
-                numero_ordem=parsed_occ.numero_ordem,
-                titulo=parsed_occ.titulo,
-                status_ordem=parsed_occ.status_ordem,
-                prioridade_sap=parsed_occ.prioridade_sap,
-                tipo_ordem_sap=parsed_occ.tipo_ordem_sap,
-                data_abertura=parsed_occ.data_abertura,
-                hora_abertura=parsed_occ.hora_abertura,
-                abertura_timestamp=parsed_occ.abertura_timestamp,
-                turno=parsed_occ.turno,
-                grupo_planejamento=parsed_occ.grupo_planejamento,
-                reportado_por_id=parsed_occ.reportado_por_id,
-                reportado_por_nome=parsed_occ.reportado_por_nome,
-                especialidade=parsed_occ.especialidade,
-                posicao_funcional=parsed_occ.posicao_funcional,
-                arvore_planta=parsed_occ.arvore_planta,
-                descricao_posicao_funcional=parsed_occ.descricao_posicao_funcional,
-                descricao_curta_objeto=parsed_occ.descricao_curta_objeto,
-                equipamento_codigo=parsed_occ.equipamento_codigo,
-                equipamento_descricao=parsed_occ.equipamento_descricao,
-                descricao_longa_notificacao=parsed_occ.descricao_longa_notificacao,
-                descricao_longa_ordem=parsed_occ.descricao_longa_ordem,
-                texto_confirmacao=parsed_occ.texto_confirmacao,
-                defeito=parsed_occ.defeito,
-                causa=parsed_occ.causa,
-                observacoes_objeto=parsed_occ.observacoes_objeto,
-                inicio_avaria=parsed_occ.inicio_avaria,
-                fim_avaria=parsed_occ.fim_avaria,
-                duracao_avaria_min=parsed_occ.duracao_avaria_min,
-                teve_pane=parsed_occ.teve_pane,
-                duracao_pane_min=parsed_occ.duracao_pane_min,
-                tem_jump_force=parsed_occ.tem_jump_force,
-                jump_origem=parsed_occ.jump_origem,
-                detalhe_jump_tarefas=parsed_occ.detalhe_jump_tarefas,
-                jump_status="PENDENTE" if parsed_occ.tem_jump_force else None,
-                hh_total_minutos=parsed_occ.hh_total_minutos,
-                quantidade_executantes=parsed_occ.quantidade_executantes,
-                primeira_confirmacao_em=conf_min,
-                ultima_confirmacao_em=conf_max,
-                operacoes=parsed_occ.operacoes,
-                objetos=parsed_occ.objetos,
-                flag_analisar=False,
-                flag_relevante=False,
-                flag_destaque_reuniao=False,
-                status_atc="NOVO",
-                prioridade_atc=None,
-                tags_customizadas=[],
-                search_text=search_txt,
-            )
-            db.add(new_occ)
-            await db.flush()
-
-            for conf in parsed_occ.confirmations:
-                db.add(
-                    OccurrenceConfirmation(
-                        occurrence_id=new_occ.id,
-                        data_execucao=conf.data_execucao,
-                        hora_execucao=conf.hora_execucao,
-                        centro_trabalho=conf.centro_trabalho,
-                        matricula=conf.matricula,
-                        nome_executante=conf.nome_executante,
-                        duracao_min=conf.duracao_min,
-                    )
+                mapping = OccurrencePdfMapping(
+                    occurrence_id=new_occ.id,
+                    pdf_document_id=pdf_doc.id,
+                    start_page=parsed_occ.start_page,
+                    end_page=parsed_occ.end_page,
+                    field_bboxes=parsed_occ.field_bboxes,
                 )
+                db.add(mapping)
+                created_count += 1
+                if parsed_occ.posicao_funcional:
+                    fl_items_to_learn.append({
+                        "code": parsed_occ.posicao_funcional,
+                        "description": parsed_occ.descricao_posicao_funcional or parsed_occ.descricao_curta_objeto,
+                        "arvore_planta": parsed_occ.arvore_planta,
+                    })
 
-            mapping = OccurrencePdfMapping(
-                occurrence_id=new_occ.id,
-                pdf_document_id=pdf_doc.id,
-                start_page=parsed_occ.start_page,
-                end_page=parsed_occ.end_page,
-                field_bboxes=parsed_occ.field_bboxes,
-            )
-            db.add(mapping)
-            created_count += 1
+        if fl_items_to_learn:
+            try:
+                from app.services.functional_location_service import learn_functional_locations_batch
+                await learn_functional_locations_batch(db, fl_items_to_learn)
+            except Exception as e:
+                log.warning("Failed to learn functional locations during ingestion: %s", e)
 
-    if fl_items_to_learn:
-        try:
-            from app.services.functional_location_service import learn_functional_locations_batch
-            await learn_functional_locations_batch(db, fl_items_to_learn)
-        except Exception as e:
-            log.warning("Failed to learn functional locations during ingestion: %s", e)
-
-    await db.commit()
-    await db.refresh(pdf_doc)
-    return pdf_doc, created_count, updated_count, "created"
+        await db.commit()
+        await db.refresh(pdf_doc)
+        return pdf_doc, created_count, updated_count, "created"
+    except Exception as exc:
+        await db.rollback()
+        _cleanup_partial_files()
+        raise exc
 
 
 def parse_csv_param(val: Any) -> List[str]:
@@ -460,6 +488,30 @@ def parse_csv_param(val: Any) -> List[str]:
     return [p.strip().strip("'\"") for p in tokens if p.strip().strip("'\"")]
 
 
+def parse_filter_datetime(val: Any, is_end: bool = False) -> Optional[datetime]:
+    if not val:
+        return None
+    s = str(val).strip()
+    if not s:
+        return None
+    try:
+        clean = s.replace("Z", "+00:00").replace("z", "+00:00")
+        dt = datetime.fromisoformat(clean)
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        if is_end and len(s) == 10:
+            dt = dt.replace(hour=23, minute=59, second=59, microsecond=999999)
+        return dt
+    except Exception:
+        try:
+            d = datetime.strptime(s[:10], "%Y-%m-%d")
+            if is_end:
+                d = d.replace(hour=23, minute=59, second=59, microsecond=999999)
+            return d
+        except Exception:
+            return None
+
+
 async def apply_occurrence_filters(
     query,
     filters: Dict[str, Any],
@@ -478,20 +530,8 @@ async def apply_occurrence_filters(
                 if k not in filters or filters[k] is None or filters[k] == "":
                     filters[k] = v
 
-    start = filters.get("start")
-    end = filters.get("end")
-    dt_start: Optional[datetime] = None
-    dt_end: Optional[datetime] = None
-    if start:
-        try:
-            dt_start = datetime.fromisoformat(str(start).replace("Z", ""))
-        except ValueError:
-            pass
-    if end:
-        try:
-            dt_end = datetime.fromisoformat(str(end).replace("Z", ""))
-        except ValueError:
-            pass
+    dt_start = parse_filter_datetime(filters.get("start"), is_end=False)
+    dt_end = parse_filter_datetime(filters.get("end"), is_end=True)
 
     if dt_start is not None or dt_end is not None:
         date_mode = str(filters.get("date_mode") or "abertura").lower()
@@ -500,18 +540,18 @@ async def apply_occurrence_filters(
         if dt_start is not None:
             opening_conds.append(Occurrence.abertura_timestamp >= dt_start)
         if dt_end is not None:
-            opening_conds.append(Occurrence.abertura_timestamp < dt_end)
+            opening_conds.append(Occurrence.abertura_timestamp <= dt_end)
         opening_clause = and_(*opening_conds) if opening_conds else None
 
         if date_mode in ("confirmacao", "atividade"):
             start_date = dt_start.date() if dt_start is not None else None
-            end_date = (dt_end - timedelta(seconds=1)).date() if dt_end is not None else None
+            end_date = dt_end.date() if dt_end is not None else None
 
             exact_conf_conds = [Occurrence.ultima_confirmacao_em.isnot(None)]
             if dt_start is not None:
                 exact_conf_conds.append(Occurrence.ultima_confirmacao_em >= dt_start)
             if dt_end is not None:
-                exact_conf_conds.append(Occurrence.ultima_confirmacao_em < dt_end)
+                exact_conf_conds.append(Occurrence.ultima_confirmacao_em <= dt_end)
 
             midnight_conds = [
                 Occurrence.ultima_confirmacao_em.isnot(None),

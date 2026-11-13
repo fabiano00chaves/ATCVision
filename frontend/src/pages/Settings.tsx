@@ -7,6 +7,7 @@ import type {
   Settings as SystemSettingsType,
   Webhook,
 } from '@/api/types'
+import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -37,6 +38,7 @@ import { toast } from 'sonner'
 import { PresetEditorModal } from '@/components/presets/PresetEditorModal'
 
 export function Settings() {
+  const { user } = useAuth()
   const [settingsData, setSettingsData] = useState<SystemSettingsType | null>(null)
   const [presets, setPresets] = useState<Preset[]>([])
   const [tokens, setTokens] = useState<ApiTokenItem[]>([])
@@ -60,13 +62,30 @@ export function Settings() {
   const loadAll = async () => {
     setLoading(true)
     try {
+      const isAdmin = Boolean(user?.is_admin)
       const [s, p, t, w] = await Promise.all([
-        settingsApi.get(),
-        presetsApi.list(),
-        tokensApi.list(),
-        webhooksApi.list(),
+        settingsApi.get().catch((err) => {
+          console.warn('Erro ao carregar configurações gerais:', err)
+          return null
+        }),
+        presetsApi.list().catch((err) => {
+          console.warn('Erro ao carregar presets:', err)
+          return []
+        }),
+        isAdmin
+          ? tokensApi.list().catch((err) => {
+              console.warn('Erro ao carregar tokens:', err)
+              return []
+            })
+          : Promise.resolve([]),
+        isAdmin
+          ? webhooksApi.list().catch((err) => {
+              console.warn('Erro ao carregar webhooks:', err)
+              return []
+            })
+          : Promise.resolve([]),
       ])
-      setSettingsData(s)
+      if (s) setSettingsData(s)
       setPresets(p)
       setTokens(t)
       setWebhooks(w)
@@ -79,7 +98,7 @@ export function Settings() {
 
   useEffect(() => {
     loadAll()
-  }, [])
+  }, [user?.is_admin])
 
   const handleSaveSettings = async () => {
     if (!settingsData) return
@@ -383,96 +402,100 @@ export function Settings() {
         </Card>
 
         {/* API Tokens Section */}
-        <Card className="shadow-2xs p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-xs font-semibold flex items-center gap-1.5">
-                <KeyRound className="size-4 text-primary" /> Tokens de API para Ingestão Automatizada
-              </CardTitle>
-              <CardDescription className="text-[11px]">
-                Chaves seguras para scripts, automações n8n e webhooks externos no header <code>X-API-Key</code>
-              </CardDescription>
-            </div>
-            <Button size="xs" variant="outline" onClick={() => setTokenModalOpen(true)}>
-              <Plus className="size-3 mr-1" /> Gerar Novo Token
-            </Button>
-          </div>
-
-          <div className="space-y-2">
-            {tokens.map((t) => (
-              <div key={t.id} className="p-2.5 rounded border bg-card flex items-center justify-between text-xs">
-                <div>
-                  <p className="font-semibold">{t.name}</p>
-                  <p className="text-[10px] text-muted-foreground font-mono">
-                    Prefixo: <b>{t.prefix || t.token_prefix}...</b> • Criado em:{' '}
-                    {t.created_at ? new Date(t.created_at).toLocaleDateString('pt-BR') : '-'}
-                  </p>
-                </div>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                  onClick={() => handleRevokeToken(t.id)}
-                >
-                  <Trash2 className="size-3" />
-                </Button>
+        {user?.is_admin && (
+          <Card className="shadow-2xs p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-xs font-semibold flex items-center gap-1.5">
+                  <KeyRound className="size-4 text-primary" /> Tokens de API para Ingestão Automatizada
+                </CardTitle>
+                <CardDescription className="text-[11px]">
+                  Chaves seguras para scripts, automações n8n e webhooks externos no header <code>X-API-Key</code>
+                </CardDescription>
               </div>
-            ))}
-            {tokens.length === 0 && (
-              <p className="text-muted-foreground text-[11px] italic text-center py-2">
-                Nenhum token de API adicional cadastrado.
-              </p>
-            )}
-          </div>
-        </Card>
-
-        {/* Outgoing Webhooks Section */}
-        <Card className="shadow-2xs p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-xs font-semibold flex items-center gap-1.5">
-                <WebhookIcon className="size-4 text-primary" /> Webhooks de Notificação Externa
-              </CardTitle>
-              <CardDescription className="text-[11px]">
-                Notifique endpoints HTTP (n8n, Teams, alertas) instantaneamente ao ingerir novos PDFs
-              </CardDescription>
+              <Button size="xs" variant="outline" onClick={() => setTokenModalOpen(true)}>
+                <Plus className="size-3 mr-1" /> Gerar Novo Token
+              </Button>
             </div>
-            <Button size="xs" variant="outline" onClick={() => setWebhookModalOpen(true)}>
-              <Plus className="size-3 mr-1" /> Adicionar Webhook
-            </Button>
-          </div>
 
-          <div className="space-y-2">
-            {webhooks.map((w) => (
-              <div key={w.id} className="p-2.5 rounded border bg-card flex items-center justify-between text-xs">
-                <div>
-                  <p className="font-semibold">{w.name}</p>
-                  <p className="text-[10px] text-muted-foreground font-mono truncate max-w-md">
-                    {w.target_url}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant={w.is_active ? 'success' : 'secondary'}>
-                    {w.is_active ? 'Ativo' : 'Inativo'}
-                  </Badge>
+            <div className="space-y-2">
+              {tokens.map((t) => (
+                <div key={t.id} className="p-2.5 rounded border bg-card flex items-center justify-between text-xs">
+                  <div>
+                    <p className="font-semibold">{t.name}</p>
+                    <p className="text-[10px] text-muted-foreground font-mono">
+                      Prefixo: <b>{t.prefix || t.token_prefix}...</b> • Criado em:{' '}
+                      {t.created_at ? new Date(t.created_at).toLocaleDateString('pt-BR') : '-'}
+                    </p>
+                  </div>
                   <Button
                     size="xs"
                     variant="ghost"
                     className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                    onClick={() => handleDeleteWebhook(w.id)}
+                    onClick={() => handleRevokeToken(t.id)}
                   >
                     <Trash2 className="size-3" />
                   </Button>
                 </div>
+              ))}
+              {tokens.length === 0 && (
+                <p className="text-muted-foreground text-[11px] italic text-center py-2">
+                  Nenhum token de API adicional cadastrado.
+                </p>
+              )}
+            </div>
+          </Card>
+        )}
+
+        {/* Outgoing Webhooks Section */}
+        {user?.is_admin && (
+          <Card className="shadow-2xs p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-xs font-semibold flex items-center gap-1.5">
+                  <WebhookIcon className="size-4 text-primary" /> Webhooks de Notificação Externa
+                </CardTitle>
+                <CardDescription className="text-[11px]">
+                  Notifique endpoints HTTP (n8n, Teams, alertas) instantaneamente ao ingerir novos PDFs
+                </CardDescription>
               </div>
-            ))}
-            {webhooks.length === 0 && (
-              <p className="text-muted-foreground text-[11px] italic text-center py-2">
-                Nenhum webhook cadastrado.
-              </p>
-            )}
-          </div>
-        </Card>
+              <Button size="xs" variant="outline" onClick={() => setWebhookModalOpen(true)}>
+                <Plus className="size-3 mr-1" /> Adicionar Webhook
+              </Button>
+            </div>
+
+            <div className="space-y-2">
+              {webhooks.map((w) => (
+                <div key={w.id} className="p-2.5 rounded border bg-card flex items-center justify-between text-xs">
+                  <div>
+                    <p className="font-semibold">{w.name}</p>
+                    <p className="text-[10px] text-muted-foreground font-mono truncate max-w-md">
+                      {w.target_url}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={w.is_active ? 'success' : 'secondary'}>
+                      {w.is_active ? 'Ativo' : 'Inativo'}
+                    </Badge>
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      onClick={() => handleDeleteWebhook(w.id)}
+                    >
+                      <Trash2 className="size-3" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+              {webhooks.length === 0 && (
+                <p className="text-muted-foreground text-[11px] italic text-center py-2">
+                  Nenhum webhook cadastrado.
+                </p>
+              )}
+            </div>
+          </Card>
+        )}
       </div>
 
       {/* Generate API Token Modal */}

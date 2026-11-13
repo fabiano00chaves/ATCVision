@@ -50,7 +50,7 @@ class GenerateReportRequest(BaseModel):
     include_atc_comments: Optional[bool] = None
     header_title: Optional[str] = None
     format: str = "pdf"  # pdf | xlsx | csv | whatsapp | markdown
-    scope: str = "all"  # relevant_or_analyze | relevant | analyze | all
+    scope: str = "all"  # relevant_or_analyze | relevant | analyze | meeting | all
     filters: Dict[str, Any] = {}
     occurrence_ids: Optional[List[str]] = None
 

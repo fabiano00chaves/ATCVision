@@ -72,11 +72,14 @@ export function Documents() {
   // Multi-selection state
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([])
 
-  const loadData = async () => {
+  const [page, setPage] = useState(1)
+  const pageSize = 100
+
+  const loadData = async (currentPage = page) => {
     setLoading(true)
     try {
       const [res, st] = await Promise.all([
-        documentsApi.list(300, 0),
+        documentsApi.list(pageSize, (currentPage - 1) * pageSize),
         documentsApi.stats().catch((err) => {
           console.warn('Estatísticas não disponíveis no momento:', err)
           return null
@@ -96,7 +99,7 @@ export function Documents() {
   }
 
   useEffect(() => {
-    loadData()
+    loadData(1)
   }, [])
 
   const formatBytes = (bytes?: number) => {
@@ -226,11 +229,15 @@ export function Documents() {
 
   // Single Document Actions
   const handlePurgeSingle = async (doc: PdfDocument) => {
+    if (!user?.is_admin) {
+      toast.error('Apenas administradores podem liberar espaço em disco de documentos.')
+      return
+    }
     if (!confirm(`Deseja liberar o arquivo físico "${doc.filename}" do disco?\n\nTodas as ocorrências e notas continuarão preservadas no sistema.`)) return
     try {
       const res = await documentsApi.remove(doc.id, true, false)
       toast.success(res.message)
-      loadData()
+      loadData(page)
     } catch {
       toast.error('Erro ao liberar espaço do documento')
     }
@@ -245,7 +252,7 @@ export function Documents() {
     try {
       const res = await documentsApi.remove(doc.id, false, true)
       toast.success(res.message)
-      loadData()
+      loadData(page)
     } catch {
       toast.error('Erro ao excluir documento')
     }
@@ -274,18 +281,20 @@ export function Documents() {
           </div>
 
           <div className="flex items-center gap-2">
-            <Button
-              size="xs"
-              variant="outline"
-              onClick={() => {
-                setCleanupAction('purge_binaries')
-                setCleanupOpen(true)
-              }}
-              className="gap-1 border-primary/30 hover:bg-primary/10 text-primary font-medium"
-            >
-              <HardDrive className="size-3.5" />
-              Sanear Armazenamento
-            </Button>
+            {user?.is_admin && (
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={() => {
+                  setCleanupAction('purge_binaries')
+                  setCleanupOpen(true)
+                }}
+                className="gap-1 border-primary/30 hover:bg-primary/10 text-primary font-medium"
+              >
+                <HardDrive className="size-3.5" />
+                Sanear Armazenamento
+              </Button>
+            )}
 
             <Button size="xs" onClick={() => setUploadOpen(true)} className="gap-1">
               <FileUp className="size-3.5" /> Inserir PDF SAP
@@ -574,6 +583,7 @@ export function Documents() {
                               onDeleteSingle={() => handleDeleteSingle(doc)}
                               formatBytes={formatBytes}
                               navigate={navigate}
+                              isAdmin={Boolean(user?.is_admin)}
                             />
                           ))}
                         </tbody>
@@ -620,10 +630,49 @@ export function Documents() {
                       onDeleteSingle={() => handleDeleteSingle(doc)}
                       formatBytes={formatBytes}
                       navigate={navigate}
+                      isAdmin={Boolean(user?.is_admin)}
                     />
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {/* Pagination Controls */}
+        {Math.ceil(total / pageSize) > 1 && (
+          <div className="flex items-center justify-between p-3 border rounded-lg bg-card text-xs">
+            <span className="text-muted-foreground">
+              Mostrando {Math.min((page - 1) * pageSize + 1, total)} - {Math.min(page * pageSize, total)} de {total} documentos
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={page <= 1 || loading}
+                onClick={() => {
+                  const newPage = page - 1
+                  setPage(newPage)
+                  loadData(newPage)
+                }}
+              >
+                Anterior
+              </Button>
+              <span className="font-mono text-muted-foreground">
+                Página {page} de {Math.max(1, Math.ceil(total / pageSize))}
+              </span>
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={page >= Math.ceil(total / pageSize) || loading}
+                onClick={() => {
+                  const newPage = page + 1
+                  setPage(newPage)
+                  loadData(newPage)
+                }}
+              >
+                Próxima
+              </Button>
             </div>
           </div>
         )}
@@ -645,31 +694,35 @@ export function Documents() {
           </div>
 
           <div className="flex items-center gap-2">
-            <Button
-              size="xs"
-              variant="outline"
-              onClick={() => {
-                setCleanupAction('purge_binaries')
-                setCleanupOpen(true)
-              }}
-              className="gap-1.5 border-emerald-500/40 hover:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-medium"
-            >
-              <Sparkles className="size-3 text-emerald-500" />
-              Liberar Espaço Físico
-            </Button>
+            {user?.is_admin && (
+              <>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  onClick={() => {
+                    setCleanupAction('purge_binaries')
+                    setCleanupOpen(true)
+                  }}
+                  className="gap-1.5 border-emerald-500/40 hover:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-medium"
+                >
+                  <Sparkles className="size-3 text-emerald-500" />
+                  Liberar Espaço Físico
+                </Button>
 
-            <Button
-              size="xs"
-              variant="destructive"
-              onClick={() => {
-                setCleanupAction('delete_complete')
-                setCleanupOpen(true)
-              }}
-              className="gap-1.5"
-            >
-              <Trash2 className="size-3" />
-              Excluir Relatórios e Ocorrências
-            </Button>
+                <Button
+                  size="xs"
+                  variant="destructive"
+                  onClick={() => {
+                    setCleanupAction('delete_complete')
+                    setCleanupOpen(true)
+                  }}
+                  className="gap-1.5"
+                >
+                  <Trash2 className="size-3" />
+                  Excluir Relatórios e Ocorrências
+                </Button>
+              </>
+            )}
 
             <Button
               size="xs"
@@ -712,6 +765,7 @@ interface DocumentRowProps {
   onDeleteSingle: () => void
   formatBytes: (b?: number) => string
   navigate: (path: string) => void
+  isAdmin?: boolean
 }
 
 function DocumentRow({
@@ -722,6 +776,7 @@ function DocumentRow({
   onDeleteSingle,
   formatBytes,
   navigate,
+  isAdmin,
 }: DocumentRowProps) {
   return (
     <tr
@@ -878,17 +933,24 @@ function DocumentRow({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="text-xs">
-              {doc.has_binary && (
+              {isAdmin && doc.has_binary && (
                 <DropdownMenuItem onClick={onPurgeSingle} className="text-emerald-600 dark:text-emerald-400 gap-1.5 cursor-pointer">
                   <Sparkles className="size-3.5" />
                   Liberar Espaço Físico (Manter Dados)
                 </DropdownMenuItem>
               )}
-              {doc.has_binary && <DropdownMenuSeparator />}
-              <DropdownMenuItem onClick={onDeleteSingle} className="text-destructive gap-1.5 cursor-pointer">
-                <Trash2 className="size-3.5" />
-                Excluir Documento e Ocorrências
-              </DropdownMenuItem>
+              {isAdmin && doc.has_binary && <DropdownMenuSeparator />}
+              {isAdmin && (
+                <DropdownMenuItem onClick={onDeleteSingle} className="text-destructive gap-1.5 cursor-pointer">
+                  <Trash2 className="size-3.5" />
+                  Excluir Documento e Ocorrências
+                </DropdownMenuItem>
+              )}
+              {!isAdmin && (
+                <div className="p-2 text-muted-foreground text-[10px]">
+                  Sem ações administrativas disponíveis
+                </div>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

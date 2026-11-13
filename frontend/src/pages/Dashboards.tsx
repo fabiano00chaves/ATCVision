@@ -207,6 +207,7 @@ export function Dashboards() {
                   <Bar dataKey="CORRETIVA" name="Corretivas" fill="#ef4444" stackId="a" />
                   <Bar dataKey="NOTIFICACAO_GERAL" name="Notif. Geral" fill="#3b82f6" stackId="a" />
                   <Bar dataKey="PREVENTIVA_CONDICAO" name="Prev. Condicional" fill="#10b981" stackId="a" />
+                  <Bar dataKey="PREVENTIVA_TEMPO" name="Prev. Sistemática" fill="#8b5cf6" stackId="a" />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>

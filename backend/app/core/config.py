@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, List
+from typing import Any, List, Optional
 from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -26,9 +26,15 @@ class Settings(BaseSettings):
     # Security
     JWT_SECRET_KEY: str = Field(default="insecure-dev-key-change-in-production-openssl-rand-hex-32")
     JWT_ALGORITHM: str = "HS256"
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(
+        default=60 * 24 * 7,
+        validation_alias=AliasChoices("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "JWT_EXPIRE_MINUTES"),
+    )
     COOKIE_NAME: str = "atc_session"
-    COOKIE_SECURE: bool = False  # Set to True behind HTTPS in production
+    COOKIE_SECURE: Optional[bool] = Field(
+        default=None,
+        description="None para auto-detecção TLS/Ambiente; True para forçar Secure; False para desativar (ex.: LAN HTTP)",
+    )
     COOKIE_SAMESITE: str = "lax"  # lax | strict | none
 
     # Cloudflare Zero Trust / Auto-Authentication
@@ -37,6 +43,14 @@ class Settings(BaseSettings):
         description="Acesso transparente sem exigir tela de login prévia (somente quando explicitamente ativado)",
     )
     CLOUDFLARE_AUTH_ENABLED: bool = True
+    CLOUDFLARE_ACCESS_TEAM_DOMAIN: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("CLOUDFLARE_ACCESS_TEAM_DOMAIN", "CF_TEAM_DOMAIN"),
+    )
+    CLOUDFLARE_ACCESS_AUD: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("CLOUDFLARE_ACCESS_AUD", "CF_AUD"),
+    )
 
     # API Key for automation/webhooks
     MASTER_API_KEY: str = "atc-master-api-key-change-in-production"
@@ -57,7 +71,7 @@ class Settings(BaseSettings):
         default="postgresql+asyncpg://postgres:postgres@localhost:5432/atc_vision"
     )
 
-    # Storage Paths
+    # Storage Paths and Limits
     BASE_DIR: Path = Path(__file__).resolve().parent.parent.parent
     STORAGE_DIR: Path = Field(
         default=Path("/app/storage/uploads"),
@@ -67,9 +81,21 @@ class Settings(BaseSettings):
         default=Path("/app/storage/watch"),
         validation_alias=AliasChoices("WATCH_FOLDER_DIR", "WATCH_FOLDER_PATH", "WATCH_FOLDER"),
     )
+    MAX_UPLOAD_SIZE_MB: int = Field(
+        default=100,
+        validation_alias=AliasChoices("MAX_UPLOAD_SIZE_MB", "MAX_UPLOAD_SIZE"),
+    )
+    WATCH_FOLDER_INTERVAL_SECONDS: int = Field(
+        default=60,
+        validation_alias=AliasChoices("WATCH_FOLDER_INTERVAL_SECONDS", "WATCH_INTERVAL_SECONDS"),
+    )
 
     # OCR Settings
     OCR_ENABLED: bool = True
+    OCR_FALLBACK_ENABLED: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("OCR_FALLBACK_ENABLED", "OCR_FALLBACK"),
+    )
     OCR_MIN_CHARS_PER_PAGE: int = 40
     OCR_TIMEOUT_SECONDS: int = 900
 

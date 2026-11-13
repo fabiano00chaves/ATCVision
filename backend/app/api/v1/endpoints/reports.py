@@ -134,8 +134,10 @@ async def generate_report(
         tmpl = t_res.scalar_one_or_none()
         if tmpl:
             selected_fields = selected_fields or tmpl.selected_fields
-            grouping = tmpl.grouping_field or grouping
-            include_comments = tmpl.include_atc_comments
+            if not req.grouping_field and tmpl.grouping_field:
+                grouping = tmpl.grouping_field
+            if req.include_atc_comments is None and tmpl.include_atc_comments is not None:
+                include_comments = tmpl.include_atc_comments
             header_title = req.header_title or tmpl.header_title
 
     if not selected_fields:
@@ -195,6 +197,7 @@ async def generate_report(
             selected_fields=selected_fields,
             header_title=header_title,
             include_atc_comments=include_comments,
+            grouping_field=grouping,
         )
         return Response(
             content=xlsx_bytes,
@@ -207,6 +210,7 @@ async def generate_report(
             occurrences=occurrences,
             selected_fields=selected_fields,
             include_atc_comments=include_comments,
+            grouping_field=grouping,
         )
         return Response(
             content=csv_text.encode("utf-8-sig"),
@@ -219,6 +223,7 @@ async def generate_report(
             occurrences=occurrences,
             header_title=header_title,
             include_atc_comments=include_comments,
+            grouping_field=grouping,
         )
         return TextReportResponse(text=text, count=len(occurrences))
 

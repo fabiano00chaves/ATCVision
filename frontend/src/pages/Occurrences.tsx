@@ -288,11 +288,16 @@ export function Occurrences({
     return merged
   }, [filters, sortOrder, quickLocationPf, onFilterLocationExternal, hideFilterBar])
 
+  const [page, setPage] = useState<number>(1)
+  const pageSize = 100
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+
   // Load occurrences list
-  const loadOccurrences = async () => {
+  const loadOccurrences = async (targetPage = page) => {
     setLoading(true)
     try {
-      const res = await occurrencesApi.list(effectiveFilters, 100, 0)
+      const offset = (targetPage - 1) * pageSize
+      const res = await occurrencesApi.list(effectiveFilters, pageSize, offset)
       setOccurrences(res.items)
       setTotal(res.total)
       if (!selectedId && res.items.length > 0) {
@@ -310,7 +315,8 @@ export function Occurrences({
   }
 
   useEffect(() => {
-    loadOccurrences()
+    setPage(1)
+    loadOccurrences(1)
   }, [effectiveFilters])
 
   // Local location count fallback computed from loaded list
@@ -740,6 +746,44 @@ export function Occurrences({
       {layoutMode === 'list' && (
         <div className="h-full overflow-y-auto p-2 sm:p-4 max-w-5xl mx-auto space-y-2.5">
           {renderOccurrencesWithGroups(false)}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between p-2.5 border rounded-md bg-card text-xs">
+              <span className="text-muted-foreground text-[11px]">
+                Mostrando {Math.min((page - 1) * pageSize + 1, total)} - {Math.min(page * pageSize, total)} de {total}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  size="xs"
+                  variant="outline"
+                  disabled={page <= 1 || loading}
+                  onClick={() => {
+                    const p = page - 1
+                    setPage(p)
+                    loadOccurrences(p)
+                  }}
+                  className="h-6 px-2 text-[11px]"
+                >
+                  <ChevronLeft className="size-3 mr-1" /> Anterior
+                </Button>
+                <span className="font-mono text-muted-foreground text-[11px]">
+                  {page} / {totalPages}
+                </span>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  disabled={page >= totalPages || loading}
+                  onClick={() => {
+                    const p = page + 1
+                    setPage(p)
+                    loadOccurrences(p)
+                  }}
+                  className="h-6 px-2 text-[11px]"
+                >
+                  Próxima <ChevronRight className="size-3 ml-1" />
+                </Button>
+              </div>
+            </div>
+          )}
           {occurrences.length === 0 && !loading && (
             <div className="p-12 text-center text-muted-foreground">
               <p className="font-semibold text-sm text-foreground">
@@ -762,6 +806,37 @@ export function Occurrences({
               {/* Compact List Sidebar */}
               <div className="w-64 xl:w-72 border-r overflow-y-auto p-2 space-y-2 shrink-0 hidden lg:block bg-muted/10">
                 {renderOccurrencesWithGroups(true)}
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between p-1.5 border-t text-[10px] text-muted-foreground bg-muted/20 rounded">
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      disabled={page <= 1 || loading}
+                      onClick={() => {
+                        const p = page - 1
+                        setPage(p)
+                        loadOccurrences(p)
+                      }}
+                      className="h-5 px-1 text-[10px]"
+                    >
+                      <ChevronLeft className="size-3" />
+                    </Button>
+                    <span className="font-mono">{page} / {totalPages} ({total})</span>
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      disabled={page >= totalPages || loading}
+                      onClick={() => {
+                        const p = page + 1
+                        setPage(p)
+                        loadOccurrences(p)
+                      }}
+                      className="h-5 px-1 text-[10px]"
+                    >
+                      <ChevronRight className="size-3" />
+                    </Button>
+                  </div>
+                )}
                 {occurrences.length === 0 && !loading && (
                   <p className="text-xs text-muted-foreground text-center py-8 px-2">
                     Nenhum registro encontrado.

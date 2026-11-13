@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import secrets
+from datetime import datetime, timezone
 from typing import Optional
 from fastapi import Cookie, Depends, Header, HTTPException, Request, status
+import jwt
+from jwt import PyJWKClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +17,37 @@ from app.db.models import ApiToken, User
 from app.db.session import get_db
 
 log = logging.getLogger("atc.auth")
+
+
+_jwks_clients: dict[str, PyJWKClient] = {}
+
+
+def get_jwks_client(team_domain: str) -> PyJWKClient:
+    if team_domain not in _jwks_clients:
+        certs_url = f"https://{team_domain}.cloudflareaccess.com/cdn-cgi/access/certs"
+        _jwks_clients[team_domain] = PyJWKClient(certs_url, cache_keys=True, max_cached_keys=16)
+    return _jwks_clients[team_domain]
+
+
+def verify_cloudflare_jwt(assertion: str, team_domain: Optional[str] = None, aud: Optional[str] = None) -> dict:
+    """Verifies a Cloudflare Access JWT assertion.
+    If team_domain is provided, fetches JWKS and validates signature, exp, and aud.
+    Otherwise, decodes token claims for validation.
+    """
+    if team_domain:
+        jwks_client = get_jwks_client(team_domain)
+        signing_key = jwks_client.get_signing_key_from_jwt(assertion)
+        decode_kwargs = {
+            "algorithms": ["RS256"],
+            "options": {"verify_exp": True},
+        }
+        if aud:
+            decode_kwargs["audience"] = aud
+        else:
+            decode_kwargs["options"]["verify_aud"] = False
+        return jwt.decode(assertion, signing_key.key, **decode_kwargs)
+    else:
+        return jwt.decode(assertion, options={"verify_signature": False})
 
 
 async def get_current_user(
@@ -26,7 +61,8 @@ async def get_current_user(
 ) -> User:
     # 1. API Key Auth (for external automations / webhooks)
     if x_api_key:
-        if x_api_key == settings.MASTER_API_KEY:
+        if settings.MASTER_API_KEY and secrets.compare_digest(x_api_key, settings.MASTER_API_KEY):
+            request.state.auth_method = "api_key"
             # Synthetic admin user
             return User(id="master-api-key", email="api@vision.fk.adm.br", name="Master API Key", is_admin=True)
 
@@ -34,16 +70,48 @@ async def get_current_user(
         tok_res = await db.execute(select(ApiToken).where(ApiToken.token_hash == token_hash))
         token_obj = tok_res.scalar_one_or_none()
         if token_obj:
+            token_obj.last_used_at = datetime.now(timezone.utc)
+            await db.commit()
+            request.state.auth_method = "api_key"
             return User(id=token_obj.id, email=f"token-{token_obj.name}@vision.fk.adm.br", name=token_obj.name, is_admin=True)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Chave de API inválida")
 
     # 2. Cloudflare Zero Trust Header (cf-access-authenticated-user-email)
+    cf_jwt = request.headers.get("cf-access-jwt-assertion")
     if settings.CLOUDFLARE_AUTH_ENABLED and cf_email and cf_email.strip():
-        # Security: In production, require proof that request came through Cloudflare proxy (CF-Ray or CF-JWT)
-        if settings.ENVIRONMENT == "production":
+        # If team domain is configured, cryptographic verification is MANDATORY
+        if settings.CLOUDFLARE_ACCESS_TEAM_DOMAIN:
+            if not cf_jwt:
+                log.warning("Cloudflare Access JWT assertion missing from %s", request.client)
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Requisição Cloudflare Access rejeitada por ausência de token JWT criptográfico (cf-access-jwt-assertion).",
+                )
+            try:
+                claims = verify_cloudflare_jwt(
+                    cf_jwt,
+                    team_domain=settings.CLOUDFLARE_ACCESS_TEAM_DOMAIN,
+                    aud=settings.CLOUDFLARE_ACCESS_AUD,
+                )
+                token_email = (claims.get("email") or claims.get("sub") or "").strip().lower()
+                if token_email and token_email != cf_email.strip().lower():
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="E-mail do cabeçalho diverge da identidade validada no token Cloudflare Access.",
+                    )
+            except HTTPException:
+                raise
+            except Exception as e:
+                log.warning("Invalid Cloudflare Access JWT assertion: %s", e)
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token Cloudflare Access inválido ou expirado.",
+                )
+        elif settings.ENVIRONMENT == "production":
+            # In production without team domain configured, require edge evidence
             has_cf_evidence = bool(
                 request.headers.get("cf-ray")
-                or request.headers.get("cf-access-jwt-assertion")
+                or cf_jwt
                 or getattr(request.state, "cf_ray", None)
             )
             if not has_cf_evidence:
@@ -52,6 +120,23 @@ async def get_current_user(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Requisição Cloudflare Access rejeitada por ausência de prova de borda (CF-Ray/CF-JWT).",
                 )
+            if cf_jwt:
+                try:
+                    claims = verify_cloudflare_jwt(cf_jwt)
+                    token_email = (claims.get("email") or claims.get("sub") or "").strip().lower()
+                    if token_email and token_email != cf_email.strip().lower():
+                        raise HTTPException(
+                            status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail="E-mail do cabeçalho diverge da identidade validada no token Cloudflare Access.",
+                        )
+                except HTTPException:
+                    raise
+                except Exception as e:
+                    log.warning("Malformed Cloudflare Access JWT assertion: %s", e)
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Token Cloudflare Access malformado.",
+                    )
 
         clean_email = cf_email.strip().lower()
         u_res = await db.execute(select(User).where(User.email == clean_email))
@@ -62,7 +147,7 @@ async def get_current_user(
             cf_user = User(
                 email=clean_email,
                 name=f"{name_part}",
-                hashed_password=hash_password("CloudflareZeroTrustPass"),
+                hashed_password=hash_password(secrets.token_urlsafe(32)),
                 is_admin=is_adm,
             )
             db.add(cf_user)

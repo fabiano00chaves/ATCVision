@@ -146,12 +146,18 @@ async def get_kpis(
 @router.get("/bad-actors", response_model=BadActorsOut)
 async def get_bad_actors(
     request: Request,
-    days: int = Query(7, ge=1, le=90),
+    days: Optional[int] = Query(None, ge=1, le=90),
     min_count: int = Query(2, ge=1, le=50),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    now_dt = datetime.now()
+    from app.core.config import settings
+    from app.services.occurrence_service import get_system_settings
+    sys_settings = await get_system_settings(db)
+    if days is None:
+        days = int(sys_settings.get("bad_actor_default_days", settings.BAD_ACTOR_DEFAULT_DAYS))
+
+    now_dt = datetime.now(timezone.utc).replace(tzinfo=None)
     since_dt = now_dt - timedelta(days=days)
 
     filters = dict(request.query_params)
@@ -230,25 +236,34 @@ async def get_failure_modes(
     analise_nao_realizada = 0
     sem_causa = 0
     sem_defeito = 0
+    poor_quality_count = 0
 
     for o in occurrences:
         d = (o.defeito or "").strip()
         c = (o.causa or "").strip()
+        c_lower = c.lower()
+        has_deficit = False
 
         if not d:
             sem_defeito += 1
+            has_deficit = True
         else:
             top_defeitos[d] += 1
 
         if not c:
             sem_causa += 1
+            has_deficit = True
         else:
             top_causas[c] += 1
-            c_lower = c.lower()
             if "não encontrada" in c_lower or "nao encontrada" in c_lower:
                 causa_nao_encontrada += 1
+                has_deficit = True
             if "não realizado" in c_lower or "nao realizado" in c_lower or "não realizada" in c_lower:
                 analise_nao_realizada += 1
+                has_deficit = True
+
+        if has_deficit:
+            poor_quality_count += 1
 
         if d and c:
             matrix_counts[(d, c)] += 1
@@ -259,7 +274,6 @@ async def get_failure_modes(
     ]
 
     total = len(occurrences)
-    poor_quality_count = sem_causa + sem_defeito + causa_nao_encontrada + analise_nao_realizada
     pct = round((poor_quality_count / total * 100), 1) if total > 0 else 0.0
 
     quality = QualityCard(

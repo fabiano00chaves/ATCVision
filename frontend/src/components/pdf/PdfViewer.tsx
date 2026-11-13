@@ -37,6 +37,55 @@ interface PdfViewerProps {
   onCollapse?: () => void
 }
 
+function transformBBox(
+  bb: BBox,
+  rotation: number,
+  origW: number,
+  origH: number,
+  scale: number
+): { left: number; top: number; width: number; height: number } {
+  const normRot = ((rotation % 360) + 360) % 360
+  const x0 = bb.x0 || 0
+  const y0 = bb.y0 || 0
+  const x1 = bb.x1 || 0
+  const y1 = bb.y1 || 0
+
+  let left = 0
+  let top = 0
+  let width = 0
+  let height = 0
+
+  if (normRot === 90) {
+    left = (origH - y1) * scale
+    top = x0 * scale
+    width = (y1 - y0) * scale
+    height = (x1 - x0) * scale
+  } else if (normRot === 180) {
+    left = (origW - x1) * scale
+    top = (origH - y1) * scale
+    width = (x1 - x0) * scale
+    height = (y1 - y0) * scale
+  } else if (normRot === 270) {
+    left = y0 * scale
+    top = (origW - x1) * scale
+    width = (y1 - y0) * scale
+    height = (x1 - x0) * scale
+  } else {
+    // 0 deg
+    left = x0 * scale
+    top = y0 * scale
+    width = (x1 - x0) * scale
+    height = (y1 - y0) * scale
+  }
+
+  return {
+    left: Math.max(0, left),
+    top: Math.max(0, top),
+    width: Math.max(0, width),
+    height: Math.max(0, height),
+  }
+}
+
 export function PdfViewer({
   documentId,
   activeMapping,
@@ -69,6 +118,7 @@ export function PdfViewer({
   // 1. Fetch PDF Binary directly with native fetch and credentials
   useEffect(() => {
     let active = true
+    let currentBlobUrl: string | null = null
     setFetchingBinary(true)
     setFetchError(null)
     setDocLoadError(null)
@@ -102,6 +152,7 @@ export function PdfViewer({
       .then(async (blob) => {
         if (!active) return
         const blobUrl = URL.createObjectURL(blob)
+        currentBlobUrl = blobUrl
         setPdfBlobUrl(blobUrl)
 
         const buffer = await blob.arrayBuffer()
@@ -119,6 +170,11 @@ export function PdfViewer({
 
     return () => {
       active = false
+      if (currentBlobUrl) {
+        try {
+          URL.revokeObjectURL(currentBlobUrl)
+        } catch {}
+      }
     }
   }, [documentId, reloadKey])
 
@@ -133,10 +189,14 @@ export function PdfViewer({
     if (!containerRef.current) return
     const containerW = containerRef.current.clientWidth
     if (!containerW) return
-    const firstPageW = activeMapping?.page_sizes?.[0]?.w || 595
+    const normRot = ((rotation % 360) + 360) % 360
+    const pageSize0 = activeMapping?.page_sizes?.[0]
+    const effectivePageW = (normRot === 90 || normRot === 270)
+      ? (pageSize0?.h || 842)
+      : (pageSize0?.w || 595)
     const padding = containerW < 640 ? 16 : 32
     const availableW = Math.max(180, containerW - padding)
-    const newScale = Math.min(2.5, Math.max(0.4, Number((availableW / firstPageW).toFixed(2))))
+    const newScale = Math.min(2.5, Math.max(0.4, Number((availableW / effectivePageW).toFixed(2))))
     setScale(newScale)
   }
 
@@ -470,6 +530,9 @@ export function PdfViewer({
                 numPages > 0 &&
                 Array.from(new Array(numPages), (_, index) => {
                   const pageNum = index + 1
+                  const pageSize = activeMapping?.page_sizes?.[pageNum - 1]
+                  const origW = pageSize?.w || 595
+                  const origH = pageSize?.h || 842
                   const pageBBoxes = (bboxesToRender || []).filter((b) => b && b.page === pageNum)
                   const recordBBoxes = (activeMapping?.field_bboxes?.['record'] || []).filter(
                     (b) => b && b.page === pageNum
@@ -499,32 +562,38 @@ export function PdfViewer({
                       {/* Overlay Layer for Bounding Box Highlights */}
                       <div className="absolute inset-0 pointer-events-none overflow-hidden">
                         {/* Subtle border for the active occurrence record */}
-                        {recordBBoxes.map((bb, bbi) => (
-                          <div
-                            key={`rec_${bbi}`}
-                            className="absolute border border-primary/30 bg-primary/5 rounded-xs"
-                            style={{
-                              left: `${(bb.x0 || 0) * scale}px`,
-                              top: `${(bb.y0 || 0) * scale}px`,
-                              width: `${Math.max(0, ((bb.x1 || 0) - (bb.x0 || 0)) * scale)}px`,
-                              height: `${Math.max(0, ((bb.y1 || 0) - (bb.y0 || 0)) * scale)}px`,
-                            }}
-                          />
-                        ))}
+                        {recordBBoxes.map((bb, bbi) => {
+                          const box = transformBBox(bb, rotation, origW, origH, scale)
+                          return (
+                            <div
+                              key={`rec_${bbi}`}
+                              className="absolute border border-primary/30 bg-primary/5 rounded-xs"
+                              style={{
+                                left: `${box.left}px`,
+                                top: `${box.top}px`,
+                                width: `${box.width}px`,
+                                height: `${box.height}px`,
+                              }}
+                            />
+                          )
+                        })}
 
                         {/* Pulsing Glowing Box for Clicked Field */}
-                        {pageBBoxes.map((bb, bbi) => (
-                          <div
-                            key={`hl_${bbi}`}
-                            className="absolute border-2 border-cyan-400 bg-cyan-400/25 rounded-xs shadow-[0_0_12px_rgba(6,182,212,0.8)] animate-pulse"
-                            style={{
-                              left: `${(bb.x0 || 0) * scale - 2}px`,
-                              top: `${(bb.y0 || 0) * scale - 2}px`,
-                              width: `${Math.max(0, ((bb.x1 || 0) - (bb.x0 || 0)) * scale + 4)}px`,
-                              height: `${Math.max(0, ((bb.y1 || 0) - (bb.y0 || 0)) * scale + 4)}px`,
-                            }}
-                          />
-                        ))}
+                        {pageBBoxes.map((bb, bbi) => {
+                          const box = transformBBox(bb, rotation, origW, origH, scale)
+                          return (
+                            <div
+                              key={`hl_${bbi}`}
+                              className="absolute border-2 border-cyan-400 bg-cyan-400/25 rounded-xs shadow-[0_0_12px_rgba(6,182,212,0.8)] animate-pulse"
+                              style={{
+                                left: `${box.left - 2}px`,
+                                top: `${box.top - 2}px`,
+                                width: `${box.width + 4}px`,
+                                height: `${box.height + 4}px`,
+                              }}
+                            />
+                          )
+                        })}
                       </div>
                     </div>
                   )

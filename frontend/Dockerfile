@@ -25,6 +25,7 @@ RUN sed -i 's/application\/javascript\s*js;/application\/javascript js mjs;/g' /
 RUN rm -rf /etc/nginx/conf.d/* /usr/share/nginx/html/*
 
 # Copy custom Nginx configuration
+COPY security_headers.conf /etc/nginx/security_headers.conf
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Copy compiled assets from builder

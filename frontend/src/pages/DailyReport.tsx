@@ -179,25 +179,16 @@ export function DailyReport() {
           if (active) setKpis(data)
         }).catch(() => {})
 
-        // Total count in window
-        occurrencesApi.list(baseCriteria, 1).then((res) => {
-          if (active) setTotalCountInWindow(res.total)
+        // Single call for total and all preset counts in window (eliminates N+1 queries)
+        occurrencesApi.counts(baseCriteria).then((data) => {
+          if (!active) return
+          setTotalCountInWindow(data.total)
+          const countMap: Record<string, number> = {}
+          for (const item of data.presets || []) {
+            countMap[item.preset_id] = item.count
+          }
+          setPresetCounts(countMap)
         }).catch(() => {})
-
-        // Real counts per preset
-        const countMap: Record<string, number> = {}
-        await Promise.all(
-          presets.map(async (p) => {
-            try {
-              const presetFilters = applyPresetToFilters(baseCriteria, p)
-              const res = await occurrencesApi.list(presetFilters, 1)
-              countMap[p.id] = res.total
-            } catch {
-              countMap[p.id] = 0
-            }
-          })
-        )
-        if (active) setPresetCounts(countMap)
       } catch {
         // Fallback
       }

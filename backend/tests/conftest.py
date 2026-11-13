@@ -19,11 +19,20 @@ from app.db.session import get_db
 from app.main import app
 from app.services.seed_data import seed_initial_data
 
+from sqlalchemy import event
+
 test_engine = create_async_engine(
     "sqlite+aiosqlite:///file:memtest?mode=memory&cache=shared&uri=true",
     connect_args={"check_same_thread": False},
     poolclass=StaticPool,
 )
+
+
+@event.listens_for(test_engine.sync_engine, "connect")
+def set_sqlite_pragma(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 TestSessionLocal = async_sessionmaker(
     bind=test_engine,
     autoflush=False,
